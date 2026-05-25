@@ -230,7 +230,7 @@ def test_app_js_renders_copyable_github_user_code():
     assert ".auth-panel .auth-code-row .auth-copy-button" in css
 
 
-def test_project_card_menu_uses_compact_vector_bubble():
+def test_project_card_menu_uses_elliptical_tool_shape():
     content = (STATIC / "app.js").read_text(encoding="utf-8")
     css = (STATIC / "styles.css").read_text(encoding="utf-8")
 
@@ -240,11 +240,12 @@ def test_project_card_menu_uses_compact_vector_bubble():
     assert "project-card-menu-icon" in content
     assert 'menuButton.append(createVerticalEllipsisIcon())' in content
     assert ".project-card .project-card-menu-button" in css
-    assert "width: 28px" in css
+    assert "width: 34px" in css
     assert "height: 28px" in css
     assert "min-height: 28px" in css
-    assert "border-radius: 999px" in css
-    assert "min-width: 88px" in css
+    assert "border-radius: 16px" in css
+    assert "min-width: 116px" in css
+    assert "border-radius: 22px" in css
     assert "font-size: 12px" in css
     assert "justify-content: center" in css
     assert "text-align: center" in css
@@ -500,6 +501,46 @@ def test_projects_home_header_balances_title_and_create_action():
     assert ".project-home-title" in css
     assert ".project-home-create-button" in css
     assert ".project-home-create-icon" in css
+
+
+def test_projects_home_supports_multi_select_project_tags():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+    i18n = (STATIC / "i18n.js").read_text(encoding="utf-8")
+
+    for symbol in (
+        "let selectedProjectTags",
+        "function projectTags",
+        "function projectMatchesTags",
+        "function renderProjectTagFilters",
+        "function toggleProjectTagFilter",
+        "function renderProjectTags",
+        "function showBatchAddProjectTagModal",
+        "function showEditProjectTagsModal",
+        "function saveProjectTags",
+        "function closeProjectTagModal",
+        "function renderSelectableProjectCards",
+    ):
+        assert symbol in content
+
+    assert 'project.tags || parseJsonList(project.tags_json)' in content
+    assert 'selectedProjectTags.every((tag) => tags.includes(tag))' in content
+    assert 'api(`/api/projects/${project.id}`, {' in content
+    assert 'method: "PATCH"' in content
+    assert '"projects.tags.title": "Tags"' in i18n
+    assert '"projects.tags.title": "标签"' in i18n
+    assert '"projects.tags.add": "Add tag"' in i18n
+    assert '"projects.tags.add": "新增标签"' in i18n
+    assert '"projects.tags.batchTitle": "Add tag to projects"' in i18n
+    assert '"projects.tags.batchTitle": "新增标签"' in i18n
+    assert '"projects.tags.clear": "Clear filters"' in i18n
+    assert '"projects.tags.clear": "清除筛选"' in i18n
+    assert ".project-tag-filter-bar" in css
+    assert ".project-tag-chip" in css
+    assert ".project-card-tags" in css
+    assert ".project-tag-modal-backdrop" in css
+    assert ".project-tag-modal-panel" in css
+    assert ".project-select-card" in css
 
 
 def test_chinese_navigation_uses_demand_workspace_terms():

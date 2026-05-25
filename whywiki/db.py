@@ -33,11 +33,12 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO schema_version(version) VALUES (0)")
 
     ensure_column(conn, "projects", "status", "TEXT DEFAULT 'active'")
+    ensure_column(conn, "projects", "tags_json", "TEXT DEFAULT '[]'")
     ensure_column(conn, "sources", "version_hint", "TEXT DEFAULT ''")
     ensure_column(conn, "facts", "validity_status", "TEXT DEFAULT 'unknown'")
     ensure_column(conn, "conflicts", "conflict_key", "TEXT DEFAULT ''")
 
-    conn.execute("UPDATE schema_version SET version = 3")
+    conn.execute("UPDATE schema_version SET version = 4")
 
 
 def init_db(conn: sqlite3.Connection | None = None) -> None:
