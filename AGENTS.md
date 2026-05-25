@@ -69,6 +69,7 @@ These rules exist to keep fast, vibe-driven development from pushing WhyWiki awa
 - Product errors should explain what happened, why it matters, and what the user can do next. Technical details belong in logs unless they directly help the user act.
 - Tests should protect user-visible product promises first, then internal implementation details.
 - Documentation must not drift from the product. When behavior changes, check README, feature status, demo flow, and relevant design docs.
+- `README.md` and `README.zh-CN.md` are a synchronized pair. When public setup, behavior, product positioning, or feature status changes, update both README files in the same change and keep their section structure aligned.
 
 ## UI / UX design discipline
 
