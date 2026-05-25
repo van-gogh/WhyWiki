@@ -106,6 +106,69 @@ def test_fact_status_update_persists_for_review_workflow(tmp_path, monkeypatch):
     assert next(item for item in facts if item["id"] == fact["id"])["status"] == "confirmed"
 
 
+def test_requirement_snapshot_api_groups_current_and_superseded_requirements(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
+    client = TestClient(app)
+    project = create_project("Lifecycle API Project")
+    root = Path(__file__).resolve().parent / "fixtures" / "messy-project"
+    ingest_path(project["id"], root)
+    build_project(project["id"])
+
+    facts = [
+        fact
+        for fact in client.get(f"/api/projects/{project['id']}/facts").json()
+        if fact["fact_type"] == "requirement"
+    ]
+    if len(facts) < 2:
+        all_facts = client.get(f"/api/projects/{project['id']}/facts").json()
+        requirement_like_facts = [
+            fact
+            for fact in all_facts
+            if "需求" in fact["statement"] or "requirement" in fact["statement"].lower()
+        ]
+        assert len(requirement_like_facts) >= 2
+        with connect() as conn:
+            for fact in requirement_like_facts[:2]:
+                conn.execute(
+                    "UPDATE facts SET fact_type = 'requirement' WHERE project_id = ? AND id = ?",
+                    (project["id"], fact["id"]),
+                )
+            conn.commit()
+        facts = [
+            fact
+            for fact in client.get(f"/api/projects/{project['id']}/facts").json()
+            if fact["fact_type"] == "requirement"
+        ]
+    assert len(facts) >= 2
+    winner, old = facts[0], facts[1]
+    assert (
+        client.patch(
+            f"/api/projects/{project['id']}/facts/{winner['id']}",
+            json={"status": "confirmed", "validity_status": "current"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.patch(
+            f"/api/projects/{project['id']}/facts/{old['id']}",
+            json={
+                "status": "confirmed",
+                "validity_status": "superseded",
+                "superseded_by_fact_id": winner["id"],
+            },
+        ).status_code
+        == 200
+    )
+
+    response = client.get(f"/api/projects/{project['id']}/requirements/snapshot?language=zh-CN")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert any(item["id"] == winner["id"] and item["lifecycle_label"] == "当前有效" for item in payload["current"])
+    assert any(item["id"] == old["id"] and item["lifecycle_label"] == "已被替代" for item in payload["superseded"])
+    assert payload["source_statuses"]
+
+
 def test_fact_evidence_endpoint_resolves_original_block_text(tmp_path, monkeypatch):
     monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
     client = TestClient(app)

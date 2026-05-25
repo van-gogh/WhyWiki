@@ -28,6 +28,7 @@ from .services.collaboration import CollaborationService
 from .services.evidence import conflict_evidence, fact_evidence
 from .services.ingest import ingest_path
 from .services.jobs import create_job, get_job, start_background_job
+from .services.requirement_lifecycle import build_requirement_snapshot
 from .services.wiki_engine import build_project
 from .services.workspace import create_project, delete_project, get_project, list_projects, update_project_tags
 
@@ -62,6 +63,9 @@ class ConflictStatusRequest(BaseModel):
 
 class FactStatusRequest(BaseModel):
     status: str
+    validity_status: str | None = None
+    superseded_by_fact_id: str | None = None
+    review_note: str | None = None
 
 
 class ConnectWorkspaceRequest(BaseModel):
@@ -487,12 +491,22 @@ def api_list_facts(project_id: str) -> list[dict]:
         return rows_to_dicts(rows)
 
 
+@app.get("/api/projects/{project_id}/requirements/snapshot")
+def api_requirement_snapshot(project_id: str, language: str = "zh-CN") -> dict:
+    require_workspace_read_if_configured(project_id)
+    with connect() as conn:
+        return build_requirement_snapshot(project_id, conn, language)
+
+
 @app.patch("/api/projects/{project_id}/facts/{fact_id}")
 def api_update_fact(project_id: str, fact_id: str, req: FactStatusRequest) -> dict:
-    if req.status not in {"candidate", "confirmed", "needs_review"}:
+    allowed_statuses = {"candidate", "confirmed", "needs_review", "rejected"}
+    allowed_validity = {"unknown", "current", "outdated", "conflicting", "superseded", "historical"}
+    if req.status not in allowed_statuses:
         raise HTTPException(status_code=400, detail="Invalid fact status")
+    if req.validity_status is not None and req.validity_status not in allowed_validity:
+        raise HTTPException(status_code=400, detail="Invalid fact validity status")
     require_review_access_if_configured(project_id)
-    validity_status = "current" if req.status == "confirmed" else "unknown"
     with connect() as conn:
         row = conn.execute(
             "SELECT id FROM facts WHERE project_id = ? AND id = ?",
@@ -500,9 +514,23 @@ def api_update_fact(project_id: str, fact_id: str, req: FactStatusRequest) -> di
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Fact not found")
+        next_validity = req.validity_status
+        if next_validity is None:
+            next_validity = "current" if req.status == "confirmed" else "unknown"
         conn.execute(
-            "UPDATE facts SET status = ?, validity_status = ? WHERE project_id = ? AND id = ?",
-            (req.status, validity_status, project_id, fact_id),
+            """
+            UPDATE facts
+            SET status = ?, validity_status = ?, superseded_by_fact_id = ?, review_note = ?, updated_at = datetime('now')
+            WHERE project_id = ? AND id = ?
+            """,
+            (
+                req.status,
+                next_validity,
+                req.superseded_by_fact_id or "",
+                req.review_note or "",
+                project_id,
+                fact_id,
+            ),
         )
         conn.commit()
         updated = conn.execute(
