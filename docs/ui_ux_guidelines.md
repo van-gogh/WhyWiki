@@ -358,6 +358,15 @@ Avoid vague or technical labels unless the target user clearly needs them:
 
 Technical terms are allowed when necessary, but they should be supported with explanation, tooltip, or progressive disclosure.
 
+## Language-Specific Status Copy
+
+Status labels, actions, and user-facing errors must follow the active UI language.
+
+- Chinese mode must use Chinese status labels such as `当前有效`, `待确认`, `已被替代`, and `历史参考`.
+- English mode must use `Current`, `Needs review`, `Superseded`, and `Historical`.
+- Internal enum values may appear in APIs, logs, tests, and developer diagnostics, but must not appear in the main UI.
+- Evidence excerpts, file paths, API endpoints, code symbols, and original document titles should keep the source language and should not be forcibly translated.
+
 ## Page-Level Requirements
 
 When creating or modifying a page, define the following before coding:

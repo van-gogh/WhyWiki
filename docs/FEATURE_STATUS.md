@@ -1,6 +1,6 @@
 # WhyWiki 功能状态台账
 
-最后更新：2026-05-25
+最后更新：2026-05-26
 
 这份文档用于长期维护 WhyWiki 的功能状态。每次新增、删除或改变功能行为时，都应同步更新这里。
 
@@ -45,6 +45,7 @@ WhyWiki 首板的核心闭环是：
 | Parser | XLSX 解析 | 部分完成 | optional parser 已存在，尽量保留 sheet/row 类 evidence。 |
 | Facts | 确定性事实抽取 | 已完成 | `whywiki/services/fact_extractor.py` 会抽取首板事实并保留 evidence pointer。 |
 | Facts | 事实类型 | 部分完成 | 已覆盖 requirement/api/code/experiment/deployment/document 风格事实；decision 抽取仍较浅。 |
+| Facts | 需求生命周期 | 已完成 | `fact_type=requirement` 支持当前有效、待确认、已被替代、已拒绝、历史参考等语义；内部枚举保留英文，用户界面通过 i18n 显示本地化状态。 |
 | Facts | 人工确认事实 | 已完成 | `PATCH /api/projects/{project_id}/facts/{fact_id}` 会持久化 `candidate`、`confirmed`、`needs_review` 状态；Web UI 的“确认这个事实”使用该 API。 |
 | Facts | LLM-assisted extraction | 计划中 | 等 deterministic behavior 稳定后再加，不能成为基础流程必需条件。 |
 | 冲突 | 多份 latest/final 文档 | 已完成 | 检测多个材料同时声称 `latest/final/最新版/最终版`。 |
@@ -53,8 +54,10 @@ WhyWiki 首板的核心闭环是：
 | 冲突 | 模型/部署漂移 | 已完成 | 检测 LSTM vs Transformer、v1 vs v2 等模型架构或版本漂移。 |
 | 冲突 | 稳定 conflict key 和审查状态保留 | 已完成 | rebuild 后仍保留相同冲突的 review status。 |
 | 冲突 | 冲突状态更新 API | 已完成 | `PATCH /api/projects/{project_id}/conflicts/{conflict_id}` 支持 `open`、`resolved`、`ignored`。 |
+| 冲突 | 需求冲突裁决记录 | 已完成 | 冲突解决会写入 `requirement_decisions`，胜出需求进入当前需求集，被淘汰需求保留为已被替代或历史参考。 |
 | 冲突 | 冲突审查 UI 操作 | 已完成 | Web UI 的冲突卡支持直接 resolve/ignore，并复用 `PATCH /api/projects/{project_id}/conflicts/{conflict_id}`。 |
 | Wiki | Markdown Wiki 生成 | 已完成 | `whywiki build` 会生成 overview、requirements、architecture、api、experiments、deployment、conflicts、handover、open-questions 页面。 |
+| Wiki | 当前需求快照 | 已完成 | requirements Wiki 页面从结构化当前需求集生成，展示当前有效需求、已被替代需求、未解决冲突和证据。 |
 | Wiki | 带证据的 Wiki 内容 | 部分完成 | 页面里有 evidence pointer，但页面质量、不确定性表达和信息组织仍是首板水平。 |
 | Wiki | 人工编辑区域保留 | 计划中 | 后续应保留人工编辑区域，避免生成时整体覆盖。 |
 | 交接包 | Handover pack 生成 | 已完成 | build 会生成 handover 页面，并通过 `GET /api/projects/{project_id}/handover` 暴露。 |
@@ -68,11 +71,12 @@ WhyWiki 首板的核心闭环是：
 | Web UI | 项目删除入口 | 已完成 | 项目卡片右上角三点菜单提供“删除”危险操作，删除前二次确认；删除当前项目会清空当前项目状态并刷新项目列表。 |
 | Web UI | 需求现状视图 | 已完成 | 展示 source/fact/conflict/wiki 指标和当前待审查摘要，并提供项目内摄入和生成入口。 |
 | Web UI | 原始文件视图 | 已完成 | 能列出来源，并通过 API 查看 source/block 内容。 |
-| Web UI | 需求冲突点视图 | 部分完成 | 能展示 conflicts 和 review facts；还缺 resolve/ignore 操作。 |
+| Web UI | 需求冲突点视图 | 已完成 | 能展示 conflicts 和 review facts，并提供 resolve/ignore 操作入口。 |
 | Web UI | Wiki index | 已完成 | Wiki 索引在 topbar，不作为日常首页。 |
 | Web UI | 需求问答视图 | 已完成 | 有默认问题，渲染 answer 和 structured evidence。 |
 | Web UI | Settings / handover export | 部分完成 | Settings 能展示 handover；更完整的导出/下载体验未做。 |
 | Web UI | 中英文切换 | 已完成 | 有中文/英文 language switch，并由 web asset tests 覆盖。 |
+| Web UI | 生命周期本地化状态 | 已完成 | 中文模式显示“当前有效 / 已被替代 / 待确认”等中文状态；英文模式显示对应英文状态，不在主 UI 暴露裸枚举。 |
 | Git provider login | 真实 Provider 登录 | 已完成 | GitHub device flow 和 Gitea PKCE 可在本地连接 provider 账号；token 不进入 `accounts.json`，默认走系统凭据存储，开发环境可显式启用文件 fallback。 |
 | Web UI | 证据原文查看 | 已完成 | `GET /api/projects/{project_id}/facts/{fact_id}/evidence` 和 `/conflicts/{conflict_id}/evidence` 会解析 evidence pointer，返回原始 block 片段、来源、路径和位置；Web 证据抽屉可加载原文。 |
 | Web UI | 扫描/生成进度 | 已完成 | Web 扫描和生成 Wiki 走 `ingest-jobs`、`build-jobs` 与 `/api/jobs/{job_id}` 轮询，状态持久化在 `operation_jobs`。 |
@@ -130,6 +134,7 @@ Not included in this slice:
 6. 有聚焦测试、本地验证或可复现命令覆盖关键用户承诺。
 7. README、功能台账、产品路径和相关设计文档没有与实际行为分叉。
 8. 没有为了边缘场景引入不必要的重依赖、全局状态或企业化抽象。
+9. 面向用户的状态、动作和错误提示必须遵守当前语言；内部枚举不能直接暴露到主 UI 或生成输出。
 
 ## 维护规则
 
