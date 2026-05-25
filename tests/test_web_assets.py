@@ -636,6 +636,9 @@ def test_app_js_exposes_project_guidance_and_evidence_components():
 
 def test_app_js_defines_requirement_semantic_helpers():
     content = (STATIC / "app.js").read_text(encoding="utf-8")
+    review_start = content.index("function reviewFactRows")
+    requirement_start = content.index("function requirementRows")
+    review_body = content[review_start:requirement_start]
 
     for symbol in (
         "function requirementRows",
@@ -651,6 +654,7 @@ def test_app_js_defines_requirement_semantic_helpers():
     assert 'fact.fact_type === "requirement"' in content
     assert 'row.validity_status === "conflicting"' in content
     assert 'row.status === "needs_review"' in content
+    assert 'fact.status === "candidate"' in review_body
 
 
 def test_app_js_renders_project_home_as_default_project_entry():

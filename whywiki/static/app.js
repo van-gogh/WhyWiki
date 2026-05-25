@@ -1016,7 +1016,7 @@ function visibleConflictRows(conflicts) {
 }
 
 function reviewFactRows(facts) {
-  return facts.filter((fact) => fact.status === "needs_review" || fact.validity_status === "conflicting");
+  return facts.filter((fact) => fact.status === "needs_review" || fact.status === "candidate" || fact.validity_status === "conflicting");
 }
 
 function requirementRows(facts = []) {
