@@ -911,9 +911,17 @@ function rerenderActiveViewAfterLanguageChange() {
   });
 }
 
+function normalizeView(view) {
+  if (view === "status") return "home";
+  if (view === "facts") return "requirements";
+  return view || "projects";
+}
+
 function setActiveView(view) {
+  const normalizedView = normalizeView(view);
+  activeView = normalizedView;
   document.querySelectorAll("[data-view]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.view === view);
+    button.classList.toggle("active", button.dataset.view === normalizedView);
   });
 }
 
@@ -1610,7 +1618,7 @@ async function buildCurrentProject() {
     const result = completed.result;
     const panel = createPanel(t("build.ready"));
     panel.append(renderOperationFeedback("success", t("operation.build.success"), t("dashboard.nextAction.title")));
-    appendField(panel, t("build.factsCreated"), result.facts_created);
+    appendField(panel, t("build.requirementsCreated"), result.facts_created);
     appendField(panel, t("build.conflictsCreated"), result.conflicts_created);
     appendField(panel, t("build.pagesCreated"), result.wiki_pages.length);
     const actions = createElement("div", "actions");
@@ -1663,7 +1671,7 @@ async function renderSources(projectId) {
 
 async function renderFacts(projectId) {
   const facts = await api(`/api/projects/${projectId}/facts`);
-  const panel = createPanel(t("view.facts.title"));
+  const panel = createPanel(t("view.requirements.title"));
   panel.append(createElement("p", "status-intro", t("empty.facts.body")));
   if (!facts.length) {
     panel.append(renderEmptyState({
@@ -1707,7 +1715,7 @@ function renderFactCard(fact) {
   const projectId = requireProject();
   const factId = fact.id;
   const header = createElement("header", "card-header");
-  const title = createElement("strong", "", fact.fact_type || t("view.facts.title"));
+  const title = createElement("strong", "", fact.fact_type || t("view.requirements.title"));
   const badges = createElement("div", "badge-row");
   badges.append(renderStatusBadge(factStatusLabel(fact), factStatusKind(fact) || "candidate"));
   badges.append(renderEvidenceBadge(fact));
@@ -1728,7 +1736,7 @@ function renderFactCard(fact) {
       const drawer = card.querySelector(".evidence-drawer");
       if (drawer) drawer.open = true;
     }),
-    createActionButton(t("action.confirmFact"), "secondary", () => {
+    createActionButton(t("action.confirmRequirement"), "secondary", () => {
       actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
       updateFactStatus(factId, "confirmed").then((updated) => {
         actions.replaceChildren(renderOperationFeedback("success", t("badge.confirmed"), updated.statement || ""));
@@ -1961,7 +1969,7 @@ async function renderReview(projectId) {
   const reviewFacts = facts.filter((fact) => fact.status === "needs_review" || fact.validity_status === "conflicting");
   appendSection(
     panel,
-    t("view.facts.title"),
+    t("view.requirements.title"),
     reviewFacts.length ? renderStateCards(reviewFacts, 8) : renderEmptyState({
       title: t("empty.facts.title"),
       body: t("empty.facts.body"),
@@ -2151,7 +2159,7 @@ async function renderSettings() {
 async function loadView(view) {
   const appNode = appContainer();
   if (!appNode) return;
-  activeView = view || "projects";
+  activeView = normalizeView(view);
   setActiveView(activeView);
   appNode.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
 
@@ -2168,6 +2176,8 @@ async function loadView(view) {
     }
 
     const renderers = {
+      home: renderStatus,
+      requirements: renderFacts,
       status: renderStatus,
       sources: renderSources,
       facts: renderFacts,

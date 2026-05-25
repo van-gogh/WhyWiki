@@ -102,8 +102,8 @@ def test_i18n_contains_all_dashboard_keys_for_each_language():
     keys = parser.i18n_keys | parser.placeholder_keys
     languages = parse_i18n_keys()
 
-    assert "nav.status" in keys
-    assert "nav.review" in keys
+    assert "nav.home" in keys
+    assert "nav.conflicts" in keys
     assert "nav.wikiIndex" in keys
     assert "search.placeholder" in keys
     for language, language_keys in languages.items():
@@ -119,9 +119,49 @@ def test_sidebar_buttons_expose_view_hooks():
     }
 
     assert parser.workspace_navs == 1
-    assert {"status", "sources", "review", "ask", "settings", "wiki"} <= views
+    assert {"home", "requirements", "review", "sources", "ask", "settings", "wiki"} <= views
     assert "start" not in views
     assert "handover" not in views
+
+
+def test_workspace_navigation_uses_project_task_language_and_order():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    nav_match = re.search(r"<nav data-workspace-nav>(?P<body>.*?)</nav>", html, re.S)
+    assert nav_match, "workspace navigation is missing"
+    nav_body = nav_match.group("body")
+
+    assert re.findall(r'data-view="([^"]+)"', nav_body) == [
+        "home",
+        "requirements",
+        "review",
+        "sources",
+        "ask",
+        "settings",
+    ]
+    assert re.findall(r'data-i18n="([^"]+)"', nav_body) == [
+        "nav.home",
+        "nav.requirements",
+        "nav.conflicts",
+        "nav.sources",
+        "nav.ask",
+        "nav.settings",
+    ]
+
+
+def test_i18n_uses_requirements_and_sources_for_primary_ui():
+    content = (STATIC / "i18n.js").read_text(encoding="utf-8")
+
+    assert '"nav.requirements": "Requirements"' in content
+    assert '"nav.sources": "Sources"' in content
+    assert '"nav.conflicts": "Conflicts"' in content
+    assert '"nav.requirements": "需求"' in content
+    assert '"nav.sources": "来源"' in content
+    assert '"nav.conflicts": "冲突"' in content
+    assert '"nav.facts":' not in content
+    assert '"action.confirmRequirement": "Confirm this requirement"' in content
+    assert '"action.confirmRequirement": "确认这个需求"' in content
+    assert "事实与证据" not in content
+    assert "确认这个事实" not in content
 
 
 def test_static_shell_does_not_expose_home_action_buttons():
@@ -442,14 +482,14 @@ def test_i18n_contains_dynamic_dashboard_keys_for_each_language():
         "ingest.ready",
         "build.loading",
         "build.ready",
-        "build.factsCreated",
+        "build.requirementsCreated",
         "build.conflictsCreated",
         "build.pagesCreated",
         "view.noProject",
         "view.loading",
         "view.error",
         "view.sources.title",
-        "view.facts.title",
+        "view.requirements.title",
         "view.wiki.title",
         "view.conflicts.title",
         "view.handover.title",
@@ -505,10 +545,11 @@ def test_projects_home_header_balances_title_and_create_action():
 def test_chinese_navigation_uses_demand_workspace_terms():
     content = (STATIC / "i18n.js").read_text(encoding="utf-8")
 
-    assert '"nav.status": "需求现状"' in content
-    assert '"nav.sources": "原始文件"' in content
-    assert '"nav.review": "需求冲突点"' in content
-    assert '"nav.ask": "需求问答"' in content
+    assert '"nav.home": "主页"' in content
+    assert '"nav.requirements": "需求"' in content
+    assert '"nav.conflicts": "冲突"' in content
+    assert '"nav.sources": "来源"' in content
+    assert '"nav.ask": "问答"' in content
 
 
 def test_i18n_does_not_expose_demo_product_copy():
@@ -696,7 +737,7 @@ def test_i18n_contains_p0_p1_ux_copy_for_each_language():
         "action.askWithEvidence",
         "action.generateHandover",
         "action.viewEvidence",
-        "action.confirmFact",
+        "action.confirmRequirement",
         "action.resolveConflict",
         "action.ignoreConflict",
         "action.retry",
