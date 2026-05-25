@@ -40,6 +40,7 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "facts", "review_note", "TEXT DEFAULT ''")
     ensure_column(conn, "facts", "updated_at", "TEXT DEFAULT ''")
     ensure_column(conn, "conflicts", "conflict_key", "TEXT DEFAULT ''")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_conflicts_project_key ON conflicts(project_id, conflict_key)")
 
     conn.execute(
         """
@@ -156,7 +157,6 @@ def init_db(conn: sqlite3.Connection | None = None) -> None:
         CREATE INDEX IF NOT EXISTS idx_blocks_source ON blocks(source_id);
         CREATE INDEX IF NOT EXISTS idx_facts_project ON facts(project_id);
         CREATE INDEX IF NOT EXISTS idx_conflicts_project ON conflicts(project_id);
-        CREATE INDEX IF NOT EXISTS idx_conflicts_project_key ON conflicts(project_id, conflict_key);
         CREATE INDEX IF NOT EXISTS idx_wiki_project ON wiki_pages(project_id);
         CREATE INDEX IF NOT EXISTS idx_operation_jobs_project ON operation_jobs(project_id);
         """
