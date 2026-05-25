@@ -195,10 +195,31 @@ def test_ask_specific_requirement_question_uses_evidence_retrieval_not_current_s
 
     assert "当前有效需求如下" not in result["answer"]
     assert "登录必须支持 GitHub Device Flow。" in result["answer"]
+    assert "状态：候选需求" in result["answer"]
     assert "证据：`docs/login_requirements.md`" in result["answer"]
     assert result["evidence"]
     assert result["evidence"][0]["id"] == "fact_login"
     assert result["evidence"][0]["path"] == "docs/login_requirements.md"
+
+
+def test_ask_generic_requirement_question_uses_current_snapshot(tmp_path, monkeypatch):
+    conn, project = seed_requirement_snapshot_project(tmp_path, monkeypatch)
+
+    result = ask_project(project["id"], "需求是什么？", conn=conn)
+
+    assert "当前有效需求如下" in result["answer"]
+    assert "移动端必须支持离线缓存当前项目记忆。" in result["answer"]
+    assert "状态：当前有效" in result["answer"]
+
+
+def test_ask_requirement_evidence_marks_superseded_hits_as_not_current(tmp_path, monkeypatch):
+    conn, project = seed_requirement_snapshot_project(tmp_path, monkeypatch)
+
+    result = ask_project(project["id"], "暂不支持离线缓存", conn=conn)
+
+    assert "移动端暂不支持离线缓存。" in result["answer"]
+    assert "状态：已被替代" in result["answer"]
+    assert "不是当前执行依据" in result["answer"]
 
 
 def test_ask_returns_structured_evidence(tmp_path, monkeypatch):

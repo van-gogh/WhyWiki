@@ -2,8 +2,12 @@ import sqlite3
 
 import pytest
 
+from whywiki.db import connect
 from whywiki.db import init_db
+from whywiki.services.ingest import ingest_path
 from whywiki.services.requirement_lifecycle import build_requirement_snapshot, record_requirement_decision
+from whywiki.services.wiki_engine import build_project
+from whywiki.services.workspace import create_project
 from whywiki.utils import now_iso, to_json
 
 
@@ -236,6 +240,70 @@ def test_accept_fact_decision_marks_winner_current_and_old_fact_superseded(tmp_p
     assert decision["action"] == "accept_fact"
 
 
+def test_build_project_preserves_requirement_lifecycle_decisions(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    (source_root / "requirements_v1.md").write_text("# 旧需求\n\n需求：移动端暂不支持离线缓存。\n", encoding="utf-8")
+    (source_root / "requirements_v2.md").write_text("# 新需求\n\n需求：移动端必须支持离线缓存。\n", encoding="utf-8")
+    project = create_project("Lifecycle rebuild project")
+    ingest_path(project["id"], source_root)
+    build_project(project["id"])
+
+    with connect() as conn:
+        facts = conn.execute(
+            """
+            SELECT *
+            FROM facts
+            WHERE project_id = ? AND fact_type = 'requirement'
+            ORDER BY statement
+            """,
+            (project["id"],),
+        ).fetchall()
+        fact_new = next(row for row in facts if "必须支持离线缓存" in row["statement"])
+        fact_old = next(row for row in facts if "暂不支持离线缓存" in row["statement"])
+        conn.execute(
+            """
+            INSERT INTO conflicts(
+                id, project_id, conflict_key, conflict_type, title, description,
+                evidence_json, severity, status, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "conf_rebuild",
+                project["id"],
+                "requirement:rebuild",
+                "requirement_conflict",
+                "离线缓存需求冲突",
+                "新旧需求不一致",
+                to_json([{"fact_id": fact_old["id"]}, {"fact_id": fact_new["id"]}]),
+                "high",
+                "open",
+                now_iso(),
+            ),
+        )
+        record_requirement_decision(
+            project["id"],
+            "conf_rebuild",
+            "accept_fact",
+            accepted_fact_id=fact_new["id"],
+            superseded_fact_ids=[fact_old["id"]],
+            reason="新版需求覆盖旧版需求",
+            conn=conn,
+        )
+        build_project(project["id"], conn)
+        snapshot = build_requirement_snapshot(project["id"], conn)
+
+    assert any(item["id"] == fact_new["id"] and item["lifecycle_status"] == "current" for item in snapshot["current"])
+    assert any(
+        item["id"] == fact_old["id"]
+        and item["lifecycle_status"] == "superseded"
+        and item["superseded_by_fact_id"] == fact_new["id"]
+        for item in snapshot["superseded"]
+    )
+
+
 def test_accept_fact_decision_marks_rejected_fact_historical(tmp_path):
     conn = sqlite3.connect(tmp_path / "whywiki.db")
     conn.row_factory = sqlite3.Row
@@ -248,6 +316,10 @@ def test_accept_fact_decision_marks_rejected_fact_historical(tmp_path):
     insert_requirement(conn, project_id, "fact_old", "不做离线缓存", "src_old", "docs/requirements_v1.md")
     insert_requirement(conn, project_id, "fact_rejected", "离线缓存只支持草稿", "src_rejected", "docs/requirements_draft.md")
     insert_requirement_conflict(conn, project_id, "conf_1")
+    conn.execute(
+        "UPDATE conflicts SET evidence_json = ? WHERE project_id = ? AND id = ?",
+        (to_json([{"fact_id": "fact_old"}, {"fact_id": "fact_new"}, {"fact_id": "fact_rejected"}]), project_id, "conf_1"),
+    )
     conn.commit()
 
     decision = record_requirement_decision(
@@ -284,6 +356,10 @@ def test_merge_requirement_rejects_rejected_facts_without_superseding_them(tmp_p
     insert_requirement(conn, project_id, "fact_b", "缓存支持手动刷新", "src_b", "docs/requirements_b.md")
     insert_requirement(conn, project_id, "fact_rejected", "只保留草稿缓存", "src_rejected", "docs/requirements_draft.md")
     insert_requirement_conflict(conn, project_id, "conf_1")
+    conn.execute(
+        "UPDATE conflicts SET evidence_json = ? WHERE project_id = ? AND id = ?",
+        (to_json([{"fact_id": "fact_a"}, {"fact_id": "fact_b"}, {"fact_id": "fact_rejected"}]), project_id, "conf_1"),
+    )
     conn.commit()
 
     decision = record_requirement_decision(
@@ -372,6 +448,31 @@ def test_decision_rejects_fact_ids_reused_across_roles(
             accepted_fact_id=accepted_fact_id,
             superseded_fact_ids=superseded_fact_ids,
             rejected_fact_ids=rejected_fact_ids,
+            conn=conn,
+        )
+
+
+def test_decision_rejects_requirement_fact_not_linked_to_conflict(tmp_path):
+    conn = sqlite3.connect(tmp_path / "whywiki.db")
+    conn.row_factory = sqlite3.Row
+    init_db(conn)
+    project_id = insert_project(conn)
+    insert_source(conn, project_id, "src_new", "docs/requirements_v2.md")
+    insert_source(conn, project_id, "src_old", "docs/requirements_v1.md")
+    insert_source(conn, project_id, "src_other", "docs/requirements_other.md")
+    insert_requirement(conn, project_id, "fact_new", "支持离线缓存", "src_new", "docs/requirements_v2.md")
+    insert_requirement(conn, project_id, "fact_old", "不做离线缓存", "src_old", "docs/requirements_v1.md")
+    insert_requirement(conn, project_id, "fact_other", "支持邮件通知", "src_other", "docs/requirements_other.md")
+    insert_requirement_conflict(conn, project_id, "conf_1")
+    conn.commit()
+
+    with pytest.raises(ValueError, match="not linked"):
+        record_requirement_decision(
+            project_id,
+            conflict_id="conf_1",
+            action="accept_fact",
+            accepted_fact_id="fact_other",
+            superseded_fact_ids=["fact_old"],
             conn=conn,
         )
 

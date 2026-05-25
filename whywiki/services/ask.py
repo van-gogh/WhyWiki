@@ -5,8 +5,8 @@ import sqlite3
 
 from ..db import connect, init_db
 from ..utils import from_json
-from .lifecycle_labels import conflict_severity_label, conflict_status_label
-from .requirement_lifecycle import build_requirement_snapshot
+from .lifecycle_labels import conflict_severity_label, conflict_status_label, requirement_status_label
+from .requirement_lifecycle import build_requirement_snapshot, requirement_lifecycle_status
 
 MIN_TOKEN_OVERLAP = 2
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
@@ -20,6 +20,15 @@ CURRENT_REQUIREMENT_INTENT_TERMS = (
     "effective requirement",
     "effective requirements",
 )
+GENERIC_REQUIREMENT_QUESTIONS = {
+    "需求是什么",
+    "有哪些需求",
+    "项目需求是什么",
+    "这个项目需求是什么",
+    "当前有哪些需求",
+    "当前的需求是什么",
+    "当前需求有哪些",
+}
 PRICING_INTENT_TERMS = (
     "预算",
     "收费",
@@ -64,7 +73,8 @@ def has_conflict_intent(text: str) -> bool:
 
 def has_current_requirement_intent(text: str) -> bool:
     lower = text.lower()
-    return any(term in lower for term in CURRENT_REQUIREMENT_INTENT_TERMS)
+    normalized = re.sub(r"[\s?？。！!,.，、]", "", lower)
+    return normalized in GENERIC_REQUIREMENT_QUESTIONS or any(term in lower for term in CURRENT_REQUIREMENT_INTENT_TERMS)
 
 
 def conflict_evidence_paths(evidence_json: str) -> list[str]:
@@ -252,7 +262,14 @@ def ask_project(project_id: str, question: str, conn: sqlite3.Connection | None 
         if kind == "fact":
             ev = from_json(row["evidence_json"], [])
             path = ev[0].get("path", "unknown") if ev else "unknown"
-            bullets.append(f"- {row['statement']}\n  - 证据：`{path}`")
+            status_lines = []
+            if row["fact_type"] == "requirement":
+                lifecycle_status = requirement_lifecycle_status(row)
+                status_lines.append(f"  - 状态：{requirement_status_label(lifecycle_status)}")
+                if lifecycle_status in {"superseded", "historical", "rejected"}:
+                    status_lines.append("  - 说明：这条需求不是当前执行依据。")
+            status_text = "\n" + "\n".join(status_lines) if status_lines else ""
+            bullets.append(f"- {row['statement']}{status_text}\n  - 证据：`{path}`")
             provider_fields = {
                 key: ev[0].get(key)
                 for key in ("provider", "base_url", "repo", "ref", "commit", "line_start", "line_end", "content_hash")

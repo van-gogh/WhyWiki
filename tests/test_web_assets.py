@@ -786,6 +786,7 @@ def test_i18n_contains_requirement_lifecycle_terms_for_each_language():
         "action.leaveForLater",
         "action.ignoreThisConflict",
         "decision.reasonPlaceholder",
+        "decision.createdStatementPlaceholder",
     }
     for language, language_keys in languages.items():
         assert not keys - language_keys, f"{language} missing keys: {sorted(keys - language_keys)}"
@@ -810,6 +811,9 @@ def test_app_js_uses_snapshot_and_localized_lifecycle_labels():
         "function requirementStatusLabel",
         "function conflictSeverityLabel",
         "function conflictStatusLabel",
+        "function snapshotSourceStatuses",
+        "function renderSourceStatusCards",
+        "function requirementsForConflict",
         "function renderRequirementSnapshot",
         "function submitRequirementDecision",
         "/api/projects/${projectId}/requirements/snapshot",
@@ -819,6 +823,10 @@ def test_app_js_uses_snapshot_and_localized_lifecycle_labels():
     assert "fact.lifecycleStatus" in content
     assert "fact.validityStatus" in content
     assert "Object.values(snapshot.source_statuses || {})" in content
+    assert "const facts = await api(`/api/projects/${projectId}/facts`);" in content
+    assert "const [sources, facts, conflicts, pages, snapshot] = await Promise.all" in content
+    assert "const currentRequirements = snapshot.current || [];" in content
+    assert 'appendSection(panel, t("status.current"), renderStateCards(facts, 8));' not in content
     assert "fieldValue(conflict.status)" not in content
     assert "fieldValue(conflict.severity)" not in content
     assert "const known = new Set([\"high\", \"medium\", \"low\"]);" in content
@@ -827,6 +835,10 @@ def test_app_js_uses_snapshot_and_localized_lifecycle_labels():
     assert "t(`conflict.status.${normalized}`)" in content
     assert 'return t("action.ignoreThisConflict")' not in content
     assert 'return t("action.resolveConflict")' not in content
+    assert 'action: "merge_requirement"' in content
+    assert 'action: "mark_outdated"' in content
+    assert "rejected_fact_ids: targets" in content
+    assert "requirementsForConflict(conflict, requirements)" in content
     assert ".status-badge-current" in css
     assert ".status-badge-superseded" in css
     assert ".source-status-partially_outdated" in css

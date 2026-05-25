@@ -75,7 +75,7 @@ class RequirementDecisionRequest(BaseModel):
 
 
 class FactStatusRequest(BaseModel):
-    status: str
+    status: str | None = None
     validity_status: str | None = None
     superseded_by_fact_id: str | None = None
     review_note: str | None = None
@@ -515,7 +515,7 @@ def api_requirement_snapshot(project_id: str, language: str = "zh-CN") -> dict:
 def api_update_fact(project_id: str, fact_id: str, req: FactStatusRequest) -> dict:
     allowed_statuses = {"candidate", "confirmed", "needs_review", "rejected"}
     allowed_validity = {"unknown", "current", "outdated", "conflicting", "superseded", "historical"}
-    if req.status not in allowed_statuses:
+    if req.status is not None and req.status not in allowed_statuses:
         raise HTTPException(status_code=400, detail="Invalid fact status")
     if req.validity_status is not None and req.validity_status not in allowed_validity:
         raise HTTPException(status_code=400, detail="Invalid fact validity status")
@@ -531,10 +531,11 @@ def api_update_fact(project_id: str, fact_id: str, req: FactStatusRequest) -> di
         if not row:
             raise HTTPException(status_code=404, detail="Fact not found")
 
+        next_status = req.status or row["status"] or "candidate"
         current_validity = row["validity_status"] or "unknown"
         next_validity = req.validity_status
         if next_validity is None:
-            if req.status == "confirmed" and current_validity == "unknown":
+            if next_status == "confirmed" and current_validity == "unknown":
                 next_validity = "current"
             else:
                 next_validity = current_validity
@@ -568,7 +569,7 @@ def api_update_fact(project_id: str, fact_id: str, req: FactStatusRequest) -> di
             WHERE project_id = ? AND id = ?
             """,
             (
-                req.status,
+                next_status,
                 next_validity,
                 next_superseded_by,
                 next_review_note,

@@ -340,6 +340,33 @@ def test_conflict_decision_api_rejects_target_ids_reused_across_roles(tmp_path, 
     assert response.status_code == 400
 
 
+def test_conflict_decision_api_rejects_fact_not_linked_to_conflict(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
+    client = TestClient(app)
+    project = create_project("Scoped Decision API Project")
+    with connect() as conn:
+        seed_source(conn, project["id"], "source_current", "docs/requirements_v2.md")
+        seed_source(conn, project["id"], "source_old", "docs/requirements_v1.md")
+        seed_source(conn, project["id"], "source_other", "docs/requirements_other.md")
+        seed_requirement_fact(conn, project["id"], "fact_new", "支持离线缓存", "source_current", "docs/requirements_v2.md")
+        seed_requirement_fact(conn, project["id"], "fact_old", "不做离线缓存", "source_old", "docs/requirements_v1.md")
+        seed_requirement_fact(conn, project["id"], "fact_other", "支持邮件通知", "source_other", "docs/requirements_other.md")
+        seed_requirement_conflict(conn, project["id"], "conf_1")
+        conn.commit()
+
+    response = client.post(
+        f"/api/projects/{project['id']}/conflicts/conf_1/decision",
+        json={
+            "action": "accept_fact",
+            "accepted_fact_id": "fact_other",
+            "superseded_fact_ids": ["fact_old"],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "not linked" in response.json()["detail"]
+
+
 def test_conflict_decision_api_returns_404_for_missing_conflict(tmp_path, monkeypatch):
     monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
     client = TestClient(app)
@@ -401,6 +428,28 @@ def test_fact_status_patch_preserves_lifecycle_fields_when_omitted(tmp_path, mon
     assert payload["validity_status"] == "superseded"
     assert payload["superseded_by_fact_id"] == "fact_current"
     assert payload["review_note"] == "保留这条评审备注"
+
+
+def test_fact_status_patch_allows_lifecycle_only_update(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
+    client = TestClient(app)
+    project = create_project("Lifecycle Only Patch Project")
+    with connect() as conn:
+        seed_source(conn, project["id"], "source_1", "docs/requirements.md")
+        seed_requirement_fact(conn, project["id"], "fact_current", "当前需求", "source_1", "docs/requirements.md", status="confirmed")
+        seed_requirement_fact(conn, project["id"], "fact_old", "旧需求", "source_1", "docs/requirements.md", status="confirmed")
+        conn.commit()
+
+    response = client.patch(
+        f"/api/projects/{project['id']}/facts/fact_old",
+        json={"validity_status": "superseded", "superseded_by_fact_id": "fact_current"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "confirmed"
+    assert payload["validity_status"] == "superseded"
+    assert payload["superseded_by_fact_id"] == "fact_current"
 
 
 def test_fact_status_patch_rejects_invalid_superseded_replacement(tmp_path, monkeypatch):

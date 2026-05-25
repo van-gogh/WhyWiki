@@ -2029,33 +2029,39 @@ function renderRequirementSnapshot(snapshot = {}) {
     wrapper.append(section);
   });
 
-  const sourceStatuses = Array.isArray(snapshot.source_statuses) ? snapshot.source_statuses : Object.values(snapshot.source_statuses || {});
+  const sourceStatuses = snapshotSourceStatuses(snapshot);
   if (sourceStatuses.length) {
     const section = createElement("section", "requirement-snapshot-section requirement-snapshot-sources");
     section.append(createElement("h3", "", t("status.recent")));
-    const grid = createElement("div", "source-status-grid");
-    sourceStatuses.forEach((source) => {
-      const card = createElement("article", "record-card source-status-card");
-      const status = source.status || "active";
-      card.append(
-        createElement("strong", "", source.title || source.path || source.source_id || t("view.sources.title")),
-        createElement("span", `source-status source-status-${status}`, sourceMemoryStatusLabel(status))
-      );
-      if (source.path) card.append(createElement("p", "source-path", source.path));
-      grid.append(card);
-    });
-    section.append(grid);
+    section.append(renderSourceStatusCards(sourceStatuses));
     wrapper.append(section);
   }
   return wrapper;
 }
 
+function snapshotSourceStatuses(snapshot = {}) {
+  return Array.isArray(snapshot.source_statuses) ? snapshot.source_statuses : Object.values(snapshot.source_statuses || {});
+}
+
+function renderSourceStatusCards(sourceStatuses = []) {
+  const grid = createElement("div", "source-status-grid");
+  sourceStatuses.forEach((source) => {
+    const card = createElement("article", "record-card source-status-card");
+    const status = source.status || "active";
+    card.append(
+      createElement("strong", "", source.title || source.path || source.source_id || t("view.sources.title")),
+      createElement("span", `source-status source-status-${status}`, sourceMemoryStatusLabel(status))
+    );
+    if (source.path) card.append(createElement("p", "source-path", source.path));
+    grid.append(card);
+  });
+  return grid;
+}
+
 async function renderFacts(projectId) {
-  const snapshot = await loadRequirementSnapshot(projectId);
+  const facts = await api(`/api/projects/${projectId}/facts`);
   const panel = createPanel(t("view.facts.title"));
-  panel.append(createElement("p", "status-intro", t("status.subtitle")));
-  const total = ["current", "needs_review", "superseded", "historical"].reduce((sum, key) => sum + (snapshot[key] || []).length, 0);
-  if (!total) {
+  if (!facts.length) {
     panel.append(renderEmptyState({
       title: t("empty.facts.title"),
       body: t("empty.facts.body"),
@@ -2065,7 +2071,9 @@ async function renderFacts(projectId) {
     }));
     return panel;
   }
-  panel.append(renderRequirementSnapshot(snapshot));
+  const grid = createElement("div", "fact-grid");
+  facts.forEach((fact) => grid.append(renderFactCard(fact)));
+  panel.append(grid);
   return panel;
 }
 
@@ -2196,19 +2204,21 @@ function visibleWikiPages(pages) {
 }
 
 async function renderStatus(projectId) {
-  const [sources, facts, conflicts, pages] = await Promise.all([
+  const [sources, facts, conflicts, pages, snapshot] = await Promise.all([
     api(`/api/projects/${projectId}/sources`),
     api(`/api/projects/${projectId}/facts`),
     api(`/api/projects/${projectId}/conflicts`),
     api(`/api/projects/${projectId}/wiki`),
+    loadRequirementSnapshot(projectId),
   ]);
   const state = deriveProjectState({ sources, facts, conflicts, pages });
   const panel = createPanel(t("status.title"));
   panel.prepend(renderProjectStatusHero(currentProject, state));
   panel.append(renderNextActionPanel(state), renderOnboardingSteps(state), createWorkspaceActions());
 
-  if (facts.length) {
-    appendSection(panel, t("status.current"), renderStateCards(facts, 8));
+  const currentRequirements = snapshot.current || [];
+  if (currentRequirements.length) {
+    appendSection(panel, t("status.current"), renderStateCards(currentRequirements, 8));
   } else {
     appendSection(panel, t("status.current"), renderEmptyState({
       title: t("empty.facts.title"),
@@ -2218,7 +2228,10 @@ async function renderStatus(projectId) {
       kind: "facts",
     }));
   }
-  if (sources.length) {
+  const sourceStatuses = snapshotSourceStatuses(snapshot);
+  if (sourceStatuses.length) {
+    appendSection(panel, t("status.recent"), renderSourceStatusCards(sourceStatuses));
+  } else if (sources.length) {
     appendSection(panel, t("status.recent"), renderRecentSources(sources));
   } else {
     appendSection(panel, t("status.recent"), renderEmptyState({
@@ -2229,11 +2242,13 @@ async function renderStatus(projectId) {
       kind: "sources",
     }));
   }
-  if (conflicts.length) {
+  const openConflicts = snapshot.open_conflicts || conflicts.filter((conflict) => conflict.status === "open");
+  if (openConflicts.length) {
     const reviewGrid = document.createElement("div");
     reviewGrid.className = "state-grid";
-    conflicts.slice(0, 4).forEach((conflict) => {
-      reviewGrid.append(renderConflictCard(conflict, facts));
+    const requirements = snapshotRequirements(snapshot);
+    openConflicts.slice(0, 4).forEach((conflict) => {
+      reviewGrid.append(renderConflictCard(conflict, requirements));
     });
     appendSection(panel, t("status.review"), reviewGrid);
   } else {
@@ -2321,15 +2336,45 @@ function selectedOptions(select) {
   return Array.from(select.selectedOptions).map((option) => option.value).filter(Boolean);
 }
 
+function rowEvidenceItems(row) {
+  if (Array.isArray(row?.evidence)) return row.evidence.filter((item) => item && typeof item === "object");
+  return evidenceItems(row);
+}
+
+function evidenceOverlaps(conflictEvidence, requirementEvidence) {
+  if (conflictEvidence.fact_id) return false;
+  return ["block_id", "source_id", "path"].some((key) => conflictEvidence[key] && conflictEvidence[key] === requirementEvidence[key]);
+}
+
+function requirementsForConflict(conflict, requirements = []) {
+  const conflictEvidence = rowEvidenceItems(conflict);
+  const directIds = new Set(conflictEvidence.map((item) => item.fact_id).filter(Boolean).map(String));
+  return requirements.filter((requirement) => {
+    if (directIds.has(String(requirement.id))) return true;
+    const requirementEvidence = rowEvidenceItems(requirement);
+    return conflictEvidence.some((conflictItem) =>
+      requirementEvidence.some((requirementItem) => evidenceOverlaps(conflictItem, requirementItem))
+    );
+  });
+}
+
 function renderConflictDecisionControls(conflict, actions, requirements = []) {
   const controls = createElement("div", "decision-controls");
   const accepted = renderRequirementSelect(requirements, t("action.acceptAsCurrent"));
   const superseded = renderRequirementSelect(requirements, t("requirement.status.superseded"), true);
+  const outdated = renderRequirementSelect(requirements, t("action.markOutdated"), true);
+  const mergedStatement = document.createElement("textarea");
+  mergedStatement.rows = 2;
+  mergedStatement.placeholder = t("decision.createdStatementPlaceholder");
   const reason = document.createElement("input");
   reason.type = "text";
   reason.placeholder = t("decision.reasonPlaceholder");
   const showError = (error) => {
     actions.replaceChildren(renderOperationFeedback("error", t("view.error"), error.message || String(error)));
+  };
+  const runDecision = (payload) => {
+    actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
+    submitRequirementDecision(conflict.id, { ...payload, reason: reason.value }).then(() => loadView("review")).catch(showError);
   };
   const accept = createActionButton(t("action.acceptAsCurrent"), "primary", () => {
     const acceptedFactId = accepted.select.value;
@@ -2337,28 +2382,55 @@ function renderConflictDecisionControls(conflict, actions, requirements = []) {
       actions.replaceChildren(renderOperationFeedback("error", t("view.error"), t("empty.facts.body")));
       return;
     }
-    actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
-    submitRequirementDecision(conflict.id, {
+    runDecision({
       action: "accept_fact",
       accepted_fact_id: acceptedFactId,
       superseded_fact_ids: selectedOptions(superseded.select).filter((id) => id !== acceptedFactId),
-      reason: reason.value,
-    }).then(() => loadView("review")).catch(showError);
+    });
+  });
+  const merge = createActionButton(t("action.mergeRequirement"), "secondary", () => {
+    const acceptedFactId = accepted.select.value;
+    const sourceIds = Array.from(new Set([acceptedFactId, ...selectedOptions(superseded.select)].filter(Boolean)));
+    if (!sourceIds.length || !mergedStatement.value.trim()) {
+      actions.replaceChildren(renderOperationFeedback("error", t("view.error"), t("decision.createdStatementPlaceholder")));
+      return;
+    }
+    runDecision({
+      action: "merge_requirement",
+      accepted_fact_id: acceptedFactId,
+      superseded_fact_ids: sourceIds.filter((id) => id !== acceptedFactId),
+      created_statement: mergedStatement.value.trim(),
+    });
+  });
+  const markOutdated = createActionButton(t("action.markOutdated"), "secondary", () => {
+    const targets = selectedOptions(outdated.select);
+    if (!targets.length) {
+      actions.replaceChildren(renderOperationFeedback("error", t("view.error"), t("empty.facts.body")));
+      return;
+    }
+    runDecision({
+      action: "mark_outdated",
+      rejected_fact_ids: targets,
+    });
   });
   const later = createActionButton(t("action.leaveForLater"), "tertiary", () => {
-    actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
-    submitRequirementDecision(conflict.id, { action: "leave_for_later", reason: reason.value }).then(() => loadView("review")).catch(showError);
+    runDecision({ action: "leave_for_later" });
   });
   const ignore = createActionButton(t("action.ignoreThisConflict"), "tertiary", () => {
-    actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
-    submitRequirementDecision(conflict.id, { action: "ignore_conflict", reason: reason.value }).then(() => loadView("review")).catch(showError);
+    runDecision({ action: "ignore_conflict" });
   });
+  const hasRequirements = selectableRequirementOptions(requirements).length > 0;
+  accept.disabled = !hasRequirements;
+  merge.disabled = !hasRequirements;
+  markOutdated.disabled = !hasRequirements;
   if (conflict.status === "resolved" || conflict.status === "ignored") {
     accept.disabled = true;
+    merge.disabled = true;
+    markOutdated.disabled = true;
     later.disabled = true;
     ignore.disabled = true;
   }
-  controls.append(accepted.label, superseded.label, reason, accept, later, ignore);
+  controls.append(accepted.label, superseded.label, outdated.label, mergedStatement, reason, accept, merge, markOutdated, later, ignore);
   return controls;
 }
 
@@ -2378,7 +2450,7 @@ function renderConflictCard(conflict, requirements = []) {
   const description = createElement("p", "", conflict.description || "-");
   const evidence = evidenceItems(conflict);
   const actions = createElement("div", "actions");
-  actions.append(renderConflictDecisionControls(conflict, actions, requirements));
+  actions.append(renderConflictDecisionControls(conflict, actions, requirementsForConflict(conflict, requirements)));
   card.append(
     header,
     description,

@@ -123,6 +123,54 @@ def conflict_to_snapshot(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def evidence_items_overlap(conflict_evidence: dict[str, Any], fact_evidence: dict[str, Any]) -> bool:
+    fact_id = conflict_evidence.get("fact_id")
+    if fact_id:
+        return False
+    for key in ("block_id", "source_id"):
+        if conflict_evidence.get(key) and conflict_evidence.get(key) == fact_evidence.get(key):
+            return True
+    return bool(conflict_evidence.get("path") and conflict_evidence.get("path") == fact_evidence.get("path"))
+
+
+def conflict_requirement_fact_ids(
+    conn: sqlite3.Connection,
+    project_id: str,
+    conflict: sqlite3.Row | dict[str, Any],
+) -> set[str]:
+    conflict_evidence = conflict_to_snapshot(conflict)["evidence"]
+    direct_fact_ids = {
+        str(item["fact_id"])
+        for item in conflict_evidence
+        if isinstance(item, dict) and item.get("fact_id")
+    }
+    matched_ids = set(direct_fact_ids)
+    rows = conn.execute(
+        """
+        SELECT id, evidence_json
+        FROM facts
+        WHERE project_id = ? AND fact_type = 'requirement'
+        """,
+        (project_id,),
+    ).fetchall()
+    for row in rows:
+        if row["id"] in direct_fact_ids:
+            continue
+        fact_evidence = from_json(row["evidence_json"], [])
+        if not isinstance(fact_evidence, list):
+            continue
+        for conflict_item in conflict_evidence:
+            if not isinstance(conflict_item, dict):
+                continue
+            if any(
+                isinstance(fact_item, dict) and evidence_items_overlap(conflict_item, fact_item)
+                for fact_item in fact_evidence
+            ):
+                matched_ids.add(row["id"])
+                break
+    return matched_ids
+
+
 def _unique_ids(ids: list[str]) -> list[str]:
     seen: set[str] = set()
     unique: list[str] = []
@@ -164,6 +212,22 @@ def _validate_requirement_facts(conn: sqlite3.Connection, project_id: str, fact_
     missing = [fact_id for fact_id in fact_ids if fact_id not in found]
     if missing:
         raise ValueError(f"Requirement fact not found for project: {', '.join(missing)}")
+
+
+def _validate_conflict_fact_scope(
+    conn: sqlite3.Connection,
+    project_id: str,
+    conflict: sqlite3.Row | dict[str, Any],
+    fact_ids: list[str],
+) -> None:
+    if not fact_ids:
+        return
+    scoped_ids = conflict_requirement_fact_ids(conn, project_id, conflict)
+    if not scoped_ids:
+        raise ValueError("Conflict has no linked requirement facts")
+    outside = [fact_id for fact_id in fact_ids if fact_id not in scoped_ids]
+    if outside:
+        raise ValueError(f"Requirement fact is not linked to this conflict: {', '.join(outside)}")
 
 
 def requirement_evidence(conn: sqlite3.Connection, project_id: str, fact_id: str) -> list[Any]:
@@ -274,6 +338,7 @@ def record_requirement_decision(
         rejected_ids = _normalized_ids(rejected_fact_ids or [], "rejected_fact_ids")
         _ensure_distinct_roles(accepted_fact_id, superseded_ids, rejected_ids)
         target_ids = _unique_ids([accepted_fact_id, *superseded_ids, *rejected_ids])
+        _validate_conflict_fact_scope(conn, project_id, conflict, target_ids)
         created_fact_id = ""
         note = reason.strip()
         now = now_iso()
