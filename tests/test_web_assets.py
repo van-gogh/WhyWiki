@@ -694,6 +694,35 @@ def test_app_js_renders_requirements_page_and_cards():
     assert ".requirements-attention" in css
 
 
+def test_requirements_page_exposes_multiselect_filters_and_conflict_jump():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+
+    for symbol in (
+        "let requirementFilterState",
+        "function toggleRequirementFilter",
+        "function renderRequirementFilterChip",
+        "function renderRequirementToolbar",
+        "function renderConflictJumpControl",
+        "function jumpToConflictRequirement",
+        "function createChevronIcon",
+    ):
+        assert symbol in content
+
+    assert "requirement-filter-chip" in content
+    assert "requirement-conflict-jump" in content
+    assert 'button.setAttribute("data-filter", filter)' in content
+    assert 'renderRequirementFilterChip("conflict"' in content
+    assert 'renderRequirementFilterChip("needs-review"' in content
+    assert 'renderRequirementFilterChip("confirmed"' in content
+    assert 'renderRequirementFilterChip("recent"' in content
+    assert 'renderRequirementFilterChip("source-backed"' in content
+    assert "scrollIntoView" in content
+    assert ".requirement-filter-chip" in css
+    assert ".requirement-conflict-jump" in css
+    assert ".requirement-card.is-jump-target" in css
+
+
 def test_project_home_body_and_preview_badges_track_project_state():
     content = (STATIC / "app.js").read_text(encoding="utf-8")
     css = (STATIC / "styles.css").read_text(encoding="utf-8")

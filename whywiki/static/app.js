@@ -7,7 +7,9 @@ let languageBounceTimer = null;
 let authFlowId = 0;
 let githubPollTimer = null;
 let githubCopyResetTimer = null;
-const requirementFilterState = new Set(["all"]);
+let requirementFilterState = new Set(["all"]);
+let activeConflictRequirementId = null;
+let requirementJumpTimer = null;
 let collaborationState = {
   accounts: [],
   workspace: { configured: false, workspace: null },
@@ -865,6 +867,23 @@ function createVerticalEllipsisIcon() {
     circle.setAttribute("r", "1.35");
     svg.append(circle);
   });
+  return svg;
+}
+
+function createChevronIcon(direction) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  svg.classList.add("chevron-icon");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", direction === "up" ? "m18 15-6-6-6 6" : "m6 9 6 6 6-6");
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "2.4");
+  path.setAttribute("stroke-linecap", "round");
+  path.setAttribute("stroke-linejoin", "round");
+  svg.append(path);
   return svg;
 }
 
@@ -1807,10 +1826,100 @@ function renderRequirementCard(requirement, supportingFacts = []) {
   return card;
 }
 
+function toggleRequirementFilter(filter) {
+  if (filter === "all") {
+    requirementFilterState = new Set(["all"]);
+  } else {
+    requirementFilterState.delete("all");
+    if (requirementFilterState.has(filter)) {
+      requirementFilterState.delete(filter);
+    } else {
+      requirementFilterState.add(filter);
+    }
+    if (!requirementFilterState.size) requirementFilterState.add("all");
+  }
+  activeConflictRequirementId = null;
+  loadView("requirements");
+}
+
+function renderRequirementFilterChip(filter, label, kind = "") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `requirement-filter-chip requirement-filter-${kind || filter}`;
+  button.setAttribute("data-filter", filter);
+  button.textContent = label;
+  const selected = requirementFilterState.has(filter);
+  button.classList.toggle("is-selected", selected);
+  button.setAttribute("aria-pressed", selected ? "true" : "false");
+  button.addEventListener("click", () => toggleRequirementFilter(filter));
+  return button;
+}
+
 function renderRequirementToolbar(requirements) {
-  const toolbar = createElement("div", "requirement-toolbar");
-  toolbar.append(createElement("h3", "", t("view.requirements.title")));
+  const toolbar = createElement("div", "requirements-toolbar");
+  const title = createElement("h3", "", t("requirements.allTitle"));
+  const filters = createElement("div", "requirement-filter-row");
+  filters.append(
+    renderRequirementFilterChip("all", t("filter.all"), "all"),
+    renderRequirementFilterChip("conflict", t("filter.conflict"), "conflict"),
+    renderRequirementFilterChip("needs-review", t("filter.needsReview"), "needs-review"),
+    renderRequirementFilterChip("confirmed", t("filter.confirmed"), "confirmed"),
+    renderRequirementFilterChip("recent", t("filter.recent"), "recent"),
+    renderRequirementFilterChip("source-backed", t("filter.sourceBacked"), "source-backed")
+  );
+  toolbar.append(title, filters, renderConflictJumpControl(requirements));
   return toolbar;
+}
+
+function renderConflictJumpControl(requirements) {
+  const conflicts = visibleRequirementRows(requirements, requirementFilterState)
+    .filter((row) => requirementStatusKind(row) === "conflict");
+  const control = createElement("div", "requirement-conflict-jump");
+  const activeIndex = conflicts.findIndex((row) => row.id === activeConflictRequirementId);
+  const current = activeIndex >= 0 ? activeIndex + 1 : 0;
+  const count = createElement("span", "", t("requirements.conflictJump").replace("{current}", String(current)).replace("{total}", String(conflicts.length)));
+
+  const previous = document.createElement("button");
+  previous.type = "button";
+  previous.setAttribute("aria-label", t("requirements.previousConflict"));
+  previous.append(createChevronIcon("up"));
+  previous.disabled = !conflicts.length;
+  previous.addEventListener("click", () => jumpToConflictRequirement("previous"));
+
+  const next = document.createElement("button");
+  next.type = "button";
+  next.setAttribute("aria-label", t("requirements.nextConflict"));
+  next.append(createChevronIcon("down"));
+  next.disabled = !conflicts.length;
+  next.addEventListener("click", () => jumpToConflictRequirement("next"));
+
+  control.append(count, previous, next);
+  return control;
+}
+
+function jumpToConflictRequirement(direction) {
+  const cards = Array.from(document.querySelectorAll('[data-requirement-conflict="true"]'));
+  if (!cards.length) return;
+  const currentIndex = cards.findIndex((card) => card.dataset.requirementId === activeConflictRequirementId);
+  const fallbackIndex = direction === "previous" ? cards.length : -1;
+  const baseIndex = currentIndex >= 0 ? currentIndex : fallbackIndex;
+  const nextIndex = direction === "previous"
+    ? (baseIndex - 1 + cards.length) % cards.length
+    : (baseIndex + 1) % cards.length;
+  const target = cards[nextIndex];
+  activeConflictRequirementId = target.dataset.requirementId || null;
+  if (requirementJumpTimer !== null) window.clearTimeout(requirementJumpTimer);
+  cards.forEach((card) => card.classList.remove("is-jump-target"));
+  target.classList.add("is-jump-target");
+  target.scrollIntoView({ block: "center", behavior: "smooth" });
+  const count = document.querySelector(".requirement-conflict-jump span");
+  if (count) {
+    count.textContent = t("requirements.conflictJump").replace("{current}", String(nextIndex + 1)).replace("{total}", String(cards.length));
+  }
+  requirementJumpTimer = window.setTimeout(() => {
+    target.classList.remove("is-jump-target");
+    requirementJumpTimer = null;
+  }, 1600);
 }
 
 async function renderRequirements(projectId) {
