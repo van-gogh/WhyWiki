@@ -29,6 +29,7 @@ def seed_requirement_snapshot_project(tmp_path, monkeypatch):
     sources = [
         ("src_current", "docs/requirements_v2.md"),
         ("src_old", "docs/requirements_v1.md"),
+        ("src_login", "docs/login_requirements.md"),
     ]
     for source_id, path in sources:
         conn.execute(
@@ -56,6 +57,15 @@ def seed_requirement_snapshot_project(tmp_path, monkeypatch):
             "confirmed",
             "superseded",
             "fact_current",
+        ),
+        (
+            "fact_login",
+            "登录必须支持 GitHub Device Flow。",
+            "src_login",
+            "docs/login_requirements.md",
+            "candidate",
+            "unknown",
+            "",
         ),
     ]
     for fact_id, statement, source_id, path, status, validity, superseded_by in facts:
@@ -112,6 +122,19 @@ def test_ask_current_requirement_answer_explains_superseded_history(tmp_path, mo
     assert "移动端暂不支持离线缓存。" in result["answer"]
     assert "不是当前执行依据" in result["answer"]
     assert result["evidence"] == [{"kind": "fact", "id": "fact_current", "path": "docs/requirements_v2.md", "score": 0.9}]
+
+
+def test_ask_specific_requirement_question_uses_evidence_retrieval_not_current_snapshot(tmp_path, monkeypatch):
+    conn, project = seed_requirement_snapshot_project(tmp_path, monkeypatch)
+
+    result = ask_project(project["id"], "登录需求是什么？", conn=conn)
+
+    assert "当前有效需求如下" not in result["answer"]
+    assert "登录必须支持 GitHub Device Flow。" in result["answer"]
+    assert "证据：`docs/login_requirements.md`" in result["answer"]
+    assert result["evidence"]
+    assert result["evidence"][0]["id"] == "fact_login"
+    assert result["evidence"][0]["path"] == "docs/login_requirements.md"
 
 
 def test_ask_returns_structured_evidence(tmp_path, monkeypatch):

@@ -12,9 +12,12 @@ HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 CURRENT_REQUIREMENT_INTENT_TERMS = (
     "当前需求",
     "有效需求",
-    "需求是什么",
     "current requirement",
     "current requirements",
+    "active requirement",
+    "active requirements",
+    "effective requirement",
+    "effective requirements",
 )
 PRICING_INTENT_TERMS = (
     "预算",
