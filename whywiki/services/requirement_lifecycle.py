@@ -34,8 +34,10 @@ def requirement_lifecycle_status(row: sqlite3.Row | dict[str, Any]) -> str:
         return "conflicting"
     if status == "rejected" or validity == "outdated":
         return "rejected"
-    if status in {"candidate", "needs_review"}:
+    if status == "needs_review":
         return "needs_review"
+    if status == "candidate":
+        return "candidate"
     if status == "confirmed":
         return "confirmed"
     return "candidate"

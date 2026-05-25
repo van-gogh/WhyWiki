@@ -80,15 +80,22 @@ def test_snapshot_groups_current_review_and_superseded_requirements(tmp_path):
     insert_requirement(
         conn, project_id, "fact_review", "需要确认预算限制", "src_new", "docs/requirements_v2.md", "needs_review", "unknown"
     )
+    insert_requirement(
+        conn, project_id, "fact_candidate", "评估批量导入能力", "src_new", "docs/requirements_v2.md", "candidate", "unknown"
+    )
 
     snapshot = build_requirement_snapshot(project_id, conn)
+    needs_review_by_id = {item["id"]: item for item in snapshot["needs_review"]}
 
     assert [item["id"] for item in snapshot["current"]] == ["fact_current"]
-    assert [item["id"] for item in snapshot["needs_review"]] == ["fact_review"]
+    assert set(needs_review_by_id) == {"fact_review", "fact_candidate"}
+    candidate_item = needs_review_by_id["fact_candidate"]
+    assert candidate_item["lifecycle_status"] == "candidate"
+    assert candidate_item["lifecycle_label"] == "候选需求"
     assert [item["id"] for item in snapshot["superseded"]] == ["fact_old"]
     assert snapshot["superseded"][0]["superseded_by_fact_id"] == "fact_current"
     assert snapshot["current"][0]["lifecycle_label"] == "当前有效"
-    assert snapshot["needs_review"][0]["evidence"] == [{"source_id": "src_new", "path": "docs/requirements_v2.md"}]
+    assert needs_review_by_id["fact_review"]["evidence"] == [{"source_id": "src_new", "path": "docs/requirements_v2.md"}]
     assert snapshot["source_statuses"]["src_old"]["status"] == "outdated"
     assert snapshot["source_statuses"]["src_new"]["status"] == "active"
 
