@@ -1898,7 +1898,7 @@ function renderConflictJumpControl(requirements) {
 }
 
 function jumpToConflictRequirement(direction) {
-  const cards = Array.from(document.querySelectorAll('[data-requirement-conflict="true"]'));
+  const cards = Array.from(document.querySelectorAll('.requirements-all [data-requirement-conflict="true"]'));
   if (!cards.length) return;
   const currentIndex = cards.findIndex((card) => card.dataset.requirementId === activeConflictRequirementId);
   const fallbackIndex = direction === "previous" ? cards.length : -1;

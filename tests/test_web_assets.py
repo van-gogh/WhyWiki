@@ -718,6 +718,7 @@ def test_requirements_page_exposes_multiselect_filters_and_conflict_jump():
     assert 'renderRequirementFilterChip("recent"' in content
     assert 'renderRequirementFilterChip("source-backed"' in content
     assert "scrollIntoView" in content
+    assert "'.requirements-all [data-requirement-conflict=\"true\"]'" in content
     assert ".requirement-filter-chip" in css
     assert ".requirement-conflict-jump" in css
     assert ".requirement-card.is-jump-target" in css
