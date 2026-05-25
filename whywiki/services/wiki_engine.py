@@ -9,6 +9,7 @@ from ..utils import from_json, new_id, now_iso
 from .conflict_detector import detect_conflicts
 from .fact_extractor import rebuild_facts
 from .handover import generate_handover
+from .requirement_lifecycle import build_requirement_snapshot
 
 PAGE_ORDER = [
     "overview",
@@ -55,7 +56,7 @@ def build_wiki_pages(project_id: str, conn: sqlite3.Connection) -> dict[str, str
 
     pages: dict[str, str] = {}
     pages["overview"] = render_overview(project, sources, facts, conflicts)
-    pages["requirements"] = render_fact_page("需求与业务目标", facts_by_type.get("requirement", []))
+    pages["requirements"] = render_requirement_snapshot_page(project_id, conn)
     pages["architecture"] = render_fact_page("代码结构与架构", facts_by_type.get("code", []))
     pages["api"] = render_fact_page("接口信息", facts_by_type.get("api", []))
     pages["experiments"] = render_fact_page("实验、模型与数据", facts_by_type.get("experiment", []))
@@ -118,6 +119,57 @@ def render_fact_page(title: str, facts) -> str:
         status = fact["status"]
         validity = fact["validity_status"] if "validity_status" in fact.keys() else "unknown"
         lines.append(f"  - 状态：{status}，有效性：{validity}，置信度：{fact['confidence']:.2f}")
+    return "\n".join(lines).strip() + "\n"
+
+
+def first_evidence_path(item: dict) -> str:
+    evidence = item.get("evidence", [])
+    if not isinstance(evidence, list) or not evidence:
+        return "unknown"
+    first = evidence[0]
+    if not isinstance(first, dict):
+        return "unknown"
+    return first.get("path") or "unknown"
+
+
+def render_requirement_item(item: dict) -> list[str]:
+    lines = [f"- {item['statement']}"]
+    lines.append(f"  - 状态：{item.get('lifecycle_label', item.get('lifecycle_status', 'unknown'))}")
+    lines.append(f"  - 证据：`{first_evidence_path(item)}`")
+    superseded_by = item.get("superseded_by_fact_id")
+    if superseded_by:
+        lines.append(f"  - 替代者：`{superseded_by}`")
+    return lines
+
+
+def render_requirement_snapshot_page(project_id: str, conn: sqlite3.Connection) -> str:
+    snapshot = build_requirement_snapshot(project_id, conn, "zh-CN")
+    sections = [
+        ("当前有效", snapshot["current"]),
+        ("待确认", [*snapshot["needs_review"], *snapshot["conflicting"]]),
+        ("已被替代", snapshot["superseded"]),
+        ("历史参考", [*snapshot["historical"], *snapshot["rejected"]]),
+    ]
+    lines = ["# 当前需求快照", ""]
+    for title, items in sections:
+        lines += [f"## {title}", ""]
+        if not items:
+            lines.append("- 暂无。")
+        for item in items:
+            lines.extend(render_requirement_item(item))
+        lines.append("")
+
+    if snapshot["open_conflicts"]:
+        lines += ["## 未解决冲突", ""]
+        for conflict in snapshot["open_conflicts"]:
+            lines.append(f"- **{conflict['title']}**（{conflict['severity']}）")
+            lines.append(f"  - {conflict['description']}")
+            evidence = conflict.get("evidence", [])
+            paths = [item.get("path") for item in evidence if isinstance(item, dict) and item.get("path")]
+            if paths:
+                lines.append("  - 证据：" + "、".join(f"`{path}`" for path in paths[:5]))
+        lines.append("")
+
     return "\n".join(lines).strip() + "\n"
 
 

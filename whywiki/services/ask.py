@@ -5,9 +5,17 @@ import sqlite3
 
 from ..db import connect, init_db
 from ..utils import from_json
+from .requirement_lifecycle import build_requirement_snapshot
 
 MIN_TOKEN_OVERLAP = 2
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
+CURRENT_REQUIREMENT_INTENT_TERMS = (
+    "当前需求",
+    "有效需求",
+    "需求是什么",
+    "current requirement",
+    "current requirements",
+)
 PRICING_INTENT_TERMS = (
     "预算",
     "收费",
@@ -48,6 +56,11 @@ def has_pricing_intent(text: str) -> bool:
 def has_conflict_intent(text: str) -> bool:
     lower = text.lower()
     return any(term in lower for term in CONFLICT_INTENT_TERMS)
+
+
+def has_current_requirement_intent(text: str) -> bool:
+    lower = text.lower()
+    return any(term in lower for term in CURRENT_REQUIREMENT_INTENT_TERMS)
 
 
 def conflict_evidence_paths(evidence_json: str) -> list[str]:
@@ -105,6 +118,63 @@ def answer_conflict_question(project_id: str, question: str, conn: sqlite3.Conne
     return {"question": question, "answer": answer, "evidence": evidence}
 
 
+def first_requirement_evidence_path(item: dict) -> str:
+    evidence = item.get("evidence", [])
+    if not isinstance(evidence, list) or not evidence:
+        return "unknown"
+    first = evidence[0]
+    if not isinstance(first, dict):
+        return "unknown"
+    return first.get("path") or "unknown"
+
+
+def requirement_evidence_item(item: dict, score: float) -> dict:
+    evidence = item.get("evidence", [])
+    first = evidence[0] if evidence and isinstance(evidence[0], dict) else {}
+    provider_fields = {
+        key: first.get(key)
+        for key in ("provider", "base_url", "repo", "ref", "commit", "line_start", "line_end", "content_hash")
+        if first.get(key) is not None
+    }
+    return {"kind": "fact", "id": item["id"], "path": first_requirement_evidence_path(item), "score": score, **provider_fields}
+
+
+def answer_current_requirement_question(project_id: str, question: str, conn: sqlite3.Connection) -> dict | None:
+    if not has_current_requirement_intent(question):
+        return None
+
+    snapshot = build_requirement_snapshot(project_id, conn, "zh-CN")
+    current = snapshot["current"]
+    superseded = snapshot["superseded"]
+    evidence = [requirement_evidence_item(item, float(item.get("confidence", 0.0))) for item in current]
+
+    if current:
+        bullets = []
+        for item in current:
+            bullets.append(
+                f"- {item['statement']}\n"
+                f"  - 状态：当前有效\n"
+                f"  - 证据：`{first_requirement_evidence_path(item)}`"
+            )
+        answer = "我只能基于当前已摄入材料回答。当前有效需求如下：\n\n" + "\n".join(bullets)
+    else:
+        answer = "当前还没有用户确认过的当前有效需求。建议先审查需求冲突或确认候选需求。"
+
+    if superseded:
+        history = []
+        for item in superseded[:10]:
+            superseded_by = item.get("superseded_by_fact_id") or "新的当前需求"
+            history.append(
+                f"- {item['statement']}\n"
+                f"  - 状态：已被替代，不应作为当前指导\n"
+                f"  - 替代者：`{superseded_by}`\n"
+                f"  - 证据：`{first_requirement_evidence_path(item)}`"
+            )
+        answer += "\n\n历史材料中还有以下已被替代的需求，它们不是当前执行依据：\n\n" + "\n".join(history)
+
+    return {"question": question, "answer": answer, "evidence": evidence}
+
+
 def is_api_evidence(row, tokens: set[str]) -> bool:
     block_type = row["block_type"] if "block_type" in row.keys() else ""
     fact_type = row["fact_type"] if "fact_type" in row.keys() else ""
@@ -133,6 +203,11 @@ def ask_project(project_id: str, question: str, conn: sqlite3.Connection | None 
         if close:
             conn.close()
         return conflict_answer
+    current_requirement_answer = answer_current_requirement_question(project_id, question, conn)
+    if current_requirement_answer is not None:
+        if close:
+            conn.close()
+        return current_requirement_answer
 
     candidates = []
     for row in conn.execute(
