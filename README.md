@@ -1,5 +1,7 @@
 # WhyWiki
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 **A team wiki that remembers why.** ✨
 
 Git remembers what changed. WhyWiki remembers why it changed.
@@ -135,9 +137,9 @@ WhyWiki can connect GitHub and Gitea accounts for local workspace access checks.
   macOS Keychain, Windows Credential Manager / DPAPI-backed storage, or Linux
   Secret Service.
 - `accounts.json` stores only account metadata and never stores tokens.
-- If no OS credential backend is available, WhyWiki fails clearly. For local
-  development only, set `WHYWIKI_ALLOW_FILE_TOKEN_STORE=1` to use
-  `.whywiki/auth/tokens.json`.
+- On Linux without a desktop credential service, tokens are stored automatically
+  in `$XDG_DATA_HOME/whywiki/tokens.json` (default `~/.local/share/whywiki/tokens.json`)
+  with strict file permissions (0600).
 
 ## Developer Setup
 
@@ -165,9 +167,10 @@ docker compose up --build
 
 1. Read `AGENTS.md`.
 2. Read `docs/CODEX_TASKS.md`.
-3. Update `docs/FEATURE_STATUS.md` when feature behavior changes.
-4. Start with one task at a time.
-5. After each meaningful change, run:
+3. Keep `README.md` and `README.zh-CN.md` synchronized when public setup, behavior, product positioning, or feature status changes.
+4. Update `docs/FEATURE_STATUS.md` when feature behavior changes.
+5. Start with one task at a time.
+6. After each meaningful change, run:
 
 ```bash
 python -m compileall whywiki

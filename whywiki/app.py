@@ -85,7 +85,7 @@ def require_token_store():
     except TokenStoreUnavailable as exc:
         raise HTTPException(
             status_code=503,
-            detail=f"Token storage is unavailable: {exc}. Enable keyring or set WHYWIKI_ALLOW_FILE_TOKEN_STORE=1.",
+            detail=f"Token storage is unavailable: {exc}. Install and configure a keyring backend.",
         ) from exc
 
 
@@ -114,7 +114,7 @@ def provider_registry():
                 status_code=503,
                 detail=(
                     f"Token storage is unavailable for connected provider accounts: {exc}. "
-                    "Enable keyring or set WHYWIKI_ALLOW_FILE_TOKEN_STORE=1."
+                    "Install and configure a keyring backend."
                 ),
             ) from exc
         return static_provider_registry_from_env()

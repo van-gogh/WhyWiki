@@ -1,4 +1,5 @@
 import json
+import sys
 
 import pytest
 from fastapi.testclient import TestClient
@@ -28,9 +29,10 @@ class _FakeHTTPResponse:
 def isolate_auth_api_env(tmp_path, monkeypatch):
     monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.delenv("WHYWIKI_GITHUB_CLIENT_ID", raising=False)
-    monkeypatch.delenv("WHYWIKI_ALLOW_FILE_TOKEN_STORE", raising=False)
     monkeypatch.delenv("WHYWIKI_COLLAB_STATIC_PERMISSIONS", raising=False)
     monkeypatch.setattr(KeyringTokenStore, "available", lambda self: False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
     if hasattr(app_module, "auth_sessions"):
         app_module.auth_sessions._sessions.clear()
 
@@ -40,7 +42,7 @@ def _client() -> TestClient:
 
 
 def _token_store(tmp_path):
-    return FileTokenStore.from_env(tmp_path / "data" / "auth" / "tokens.json")
+    return FileTokenStore(tmp_path / "xdg" / "whywiki" / "tokens.json")
 
 
 def test_github_device_start_requires_client_id_env():
@@ -89,7 +91,6 @@ def test_github_device_poll_authorized_saves_identity_and_token_without_returnin
     monkeypatch,
 ):
     monkeypatch.setenv("WHYWIKI_GITHUB_CLIENT_ID", "github-client")
-    monkeypatch.setenv("WHYWIKI_ALLOW_FILE_TOKEN_STORE", "1")
     identity = ProviderIdentity(provider="github", account="alice", provider_user_id="42")
 
     def fake_poll(self, device_code, current_interval=5):
@@ -126,6 +127,7 @@ def test_github_device_poll_authorized_saves_identity_and_token_without_returnin
 
 def test_github_device_poll_authorized_returns_503_when_token_store_unavailable(monkeypatch):
     monkeypatch.setenv("WHYWIKI_GITHUB_CLIENT_ID", "github-client")
+    monkeypatch.setattr(sys, "platform", "darwin")
     identity = ProviderIdentity(provider="github", account="alice", provider_user_id="42")
 
     monkeypatch.setattr(
@@ -158,7 +160,6 @@ def test_github_device_poll_pending_passes_through_without_saving_account_or_tok
     monkeypatch,
 ):
     monkeypatch.setenv("WHYWIKI_GITHUB_CLIENT_ID", "github-client")
-    monkeypatch.setenv("WHYWIKI_ALLOW_FILE_TOKEN_STORE", "1")
 
     def fake_poll(self, device_code, current_interval=5):
         return {
@@ -179,7 +180,7 @@ def test_github_device_poll_pending_passes_through_without_saving_account_or_tok
     assert response.json()["status"] == "waiting_for_user"
     assert response.json()["poll_after_seconds"] == 8
     assert AccountStore(tmp_path / "data" / "auth" / "accounts.json").list_identities() == []
-    assert not (tmp_path / "data" / "auth" / "tokens.json").exists()
+    assert not (tmp_path / "xdg" / "whywiki" / "tokens.json").exists()
 
 
 def test_gitea_start_requires_base_url_and_client_id():
@@ -269,7 +270,6 @@ def test_gitea_callback_invalid_state_returns_html_400():
 
 
 def test_gitea_callback_success_saves_identity_and_token(tmp_path, monkeypatch):
-    monkeypatch.setenv("WHYWIKI_ALLOW_FILE_TOKEN_STORE", "1")
     identity = ProviderIdentity(
         provider="gitea",
         base_url="https://git.example.test",
@@ -333,7 +333,6 @@ def test_gitea_callback_provider_failure_returns_html_without_saving_account(tmp
 
 
 def test_delete_account_removes_identity_and_token(tmp_path, monkeypatch):
-    monkeypatch.setenv("WHYWIKI_ALLOW_FILE_TOKEN_STORE", "1")
     identity = ProviderIdentity(provider="github", account="alice", provider_user_id="42")
     AccountStore(tmp_path / "data" / "auth" / "accounts.json").save_identity(identity)
     _token_store(tmp_path).save(identity, ProviderToken(access_token="secret-token"))
@@ -346,7 +345,8 @@ def test_delete_account_removes_identity_and_token(tmp_path, monkeypatch):
     assert _token_store(tmp_path).load(identity) is None
 
 
-def test_delete_account_preserves_identity_when_token_store_is_unavailable(tmp_path):
+def test_delete_account_preserves_identity_when_token_store_is_unavailable(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
     identity = ProviderIdentity(provider="github", account="alice", provider_user_id="42")
     store = AccountStore(tmp_path / "data" / "auth" / "accounts.json")
     store.save_identity(identity)
@@ -366,7 +366,6 @@ def test_delete_missing_account_does_not_require_token_store():
 
 
 def test_auth_accounts_returns_only_metadata(tmp_path, monkeypatch):
-    monkeypatch.setenv("WHYWIKI_ALLOW_FILE_TOKEN_STORE", "1")
     identity = ProviderIdentity(provider="github", account="alice", provider_user_id="42")
     AccountStore(tmp_path / "data" / "auth" / "accounts.json").save_identity(identity)
     _token_store(tmp_path).save(identity, ProviderToken(access_token="secret-token"))

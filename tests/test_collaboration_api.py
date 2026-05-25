@@ -1,4 +1,5 @@
 import json
+import sys
 
 import pytest
 from fastapi.testclient import TestClient
@@ -35,11 +36,12 @@ def _request_header(request, name: str) -> str | None:
 
 
 @pytest.fixture(autouse=True)
-def isolate_provider_auth_env(monkeypatch):
+def isolate_provider_auth_env(tmp_path, monkeypatch):
     monkeypatch.delenv("WHYWIKI_COLLAB_STATIC_PERMISSIONS", raising=False)
-    monkeypatch.delenv("WHYWIKI_ALLOW_FILE_TOKEN_STORE", raising=False)
     monkeypatch.delenv("WHYWIKI_GITHUB_CLIENT_ID", raising=False)
     monkeypatch.setattr(KeyringTokenStore, "available", lambda self: False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
 
 
 def project_with_conflict() -> tuple[str, str]:
@@ -105,12 +107,9 @@ def test_workspace_status_uses_stored_provider_token(tmp_path, monkeypatch):
     captured_requests = []
     data_dir = tmp_path / "data"
     monkeypatch.setenv("WHYWIKI_DATA_DIR", str(data_dir))
-    monkeypatch.setenv("WHYWIKI_ALLOW_FILE_TOKEN_STORE", "1")
-    monkeypatch.setattr(KeyringTokenStore, "available", lambda self: False)
-
     identity = ProviderIdentity(provider="github", account="alice", provider_user_id="1")
     AccountStore(data_dir / "auth" / "accounts.json").save_identity(identity)
-    FileTokenStore.from_env(data_dir / "auth" / "tokens.json").save(
+    FileTokenStore(tmp_path / "xdg" / "whywiki" / "tokens.json").save(
         identity,
         ProviderToken(access_token="github-token"),
     )
@@ -137,6 +136,7 @@ def test_workspace_status_uses_stored_provider_token(tmp_path, monkeypatch):
 
 
 def test_workspace_status_reports_token_store_unavailable_for_connected_account(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
     data_dir = tmp_path / "data"
     monkeypatch.setenv("WHYWIKI_DATA_DIR", str(data_dir))
     identity = ProviderIdentity(provider="github", account="alice", provider_user_id="1")
