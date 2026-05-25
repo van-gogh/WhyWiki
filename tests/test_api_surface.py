@@ -1,6 +1,7 @@
 from pathlib import Path
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 from whywiki.app import app
@@ -293,6 +294,47 @@ def test_conflict_decision_api_rejects_duplicate_target_ids(tmp_path, monkeypatc
             "accepted_fact_id": "fact_new",
             "superseded_fact_ids": ["fact_old", "fact_old"],
         },
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "request_json",
+    [
+        {
+            "action": "accept_fact",
+            "accepted_fact_id": "fact_new",
+            "superseded_fact_ids": ["fact_new"],
+        },
+        {
+            "action": "accept_fact",
+            "accepted_fact_id": "fact_new",
+            "rejected_fact_ids": ["fact_new"],
+        },
+        {
+            "action": "accept_fact",
+            "accepted_fact_id": "fact_new",
+            "superseded_fact_ids": ["fact_old"],
+            "rejected_fact_ids": ["fact_old"],
+        },
+    ],
+)
+def test_conflict_decision_api_rejects_target_ids_reused_across_roles(tmp_path, monkeypatch, request_json):
+    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
+    client = TestClient(app)
+    project = create_project("Overlap Decision API Project")
+    with connect() as conn:
+        seed_source(conn, project["id"], "source_current", "docs/requirements_v2.md")
+        seed_source(conn, project["id"], "source_old", "docs/requirements_v1.md")
+        seed_requirement_fact(conn, project["id"], "fact_new", "支持离线缓存", "source_current", "docs/requirements_v2.md")
+        seed_requirement_fact(conn, project["id"], "fact_old", "不做离线缓存", "source_old", "docs/requirements_v1.md")
+        seed_requirement_conflict(conn, project["id"], "conf_1")
+        conn.commit()
+
+    response = client.post(
+        f"/api/projects/{project['id']}/conflicts/conf_1/decision",
+        json=request_json,
     )
 
     assert response.status_code == 400

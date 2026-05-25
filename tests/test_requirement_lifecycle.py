@@ -337,3 +337,82 @@ def test_decision_rejects_duplicate_ids_and_preserves_external_transaction(tmp_p
 
     project = conn.execute("SELECT description FROM projects WHERE id = ?", (project_id,)).fetchone()
     assert project["description"] == "调用方事务内的变更"
+
+
+@pytest.mark.parametrize(
+    ("accepted_fact_id", "superseded_fact_ids", "rejected_fact_ids"),
+    [
+        ("fact_new", ["fact_new"], []),
+        ("fact_new", [], ["fact_new"]),
+        ("fact_new", ["fact_old"], ["fact_old"]),
+    ],
+)
+def test_decision_rejects_fact_ids_reused_across_roles(
+    tmp_path,
+    accepted_fact_id,
+    superseded_fact_ids,
+    rejected_fact_ids,
+):
+    conn = sqlite3.connect(tmp_path / "whywiki.db")
+    conn.row_factory = sqlite3.Row
+    init_db(conn)
+    project_id = insert_project(conn)
+    insert_source(conn, project_id, "src_new", "docs/requirements_v2.md")
+    insert_source(conn, project_id, "src_old", "docs/requirements_v1.md")
+    insert_requirement(conn, project_id, "fact_new", "支持离线缓存", "src_new", "docs/requirements_v2.md")
+    insert_requirement(conn, project_id, "fact_old", "不做离线缓存", "src_old", "docs/requirements_v1.md")
+    insert_requirement_conflict(conn, project_id, "conf_1")
+    conn.commit()
+
+    with pytest.raises(ValueError):
+        record_requirement_decision(
+            project_id,
+            conflict_id="conf_1",
+            action="accept_fact",
+            accepted_fact_id=accepted_fact_id,
+            superseded_fact_ids=superseded_fact_ids,
+            rejected_fact_ids=rejected_fact_ids,
+            conn=conn,
+        )
+
+
+def test_successful_decision_does_not_commit_external_transaction(tmp_path):
+    db_path = tmp_path / "whywiki.db"
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    init_db(conn)
+    project_id = insert_project(conn)
+    insert_source(conn, project_id, "src_new", "docs/requirements_v2.md")
+    insert_source(conn, project_id, "src_old", "docs/requirements_v1.md")
+    insert_requirement(conn, project_id, "fact_new", "支持离线缓存", "src_new", "docs/requirements_v2.md")
+    insert_requirement(conn, project_id, "fact_old", "不做离线缓存", "src_old", "docs/requirements_v1.md")
+    insert_requirement_conflict(conn, project_id, "conf_1")
+    conn.commit()
+    conn.execute(
+        "UPDATE projects SET description = ? WHERE id = ?",
+        ("调用方事务内的成功变更", project_id),
+    )
+
+    decision = record_requirement_decision(
+        project_id,
+        conflict_id="conf_1",
+        action="accept_fact",
+        accepted_fact_id="fact_new",
+        superseded_fact_ids=["fact_old"],
+        reason="新版方案覆盖旧版需求",
+        conn=conn,
+    )
+
+    reader = sqlite3.connect(db_path)
+    reader.row_factory = sqlite3.Row
+    try:
+        before_commit = reader.execute("SELECT description FROM projects WHERE id = ?", (project_id,)).fetchone()
+        assert decision["action"] == "accept_fact"
+        assert before_commit["description"] == ""
+
+        conn.commit()
+        after_commit = reader.execute("SELECT description FROM projects WHERE id = ?", (project_id,)).fetchone()
+        assert after_commit["description"] == "调用方事务内的成功变更"
+    finally:
+        reader.close()
+        conn.close()
