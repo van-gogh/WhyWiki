@@ -12,6 +12,7 @@ from whywiki.collaboration.tokens import ProviderToken
 
 
 def _post_form(url: str, data: dict[str, str], timeout: float) -> dict[str, Any]:
+    from urllib.error import HTTPError
     from urllib.request import urlopen
 
     request = Request(
@@ -24,8 +25,14 @@ def _post_form(url: str, data: dict[str, str], timeout: float) -> dict[str, Any]
         },
         method="POST",
     )
-    with urlopen(request, timeout=timeout) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        try:
+            payload = json.loads(exc.read().decode("utf-8"))
+        except Exception:
+            raise RuntimeError(f"provider OAuth request failed: {exc.code} {exc.reason}") from exc
     if not isinstance(payload, dict):
         raise ValueError("provider OAuth response must be a JSON object")
     return payload
@@ -62,6 +69,14 @@ class GitHubDeviceFlowClient:
             {"client_id": self._client_id, "scope": "repo read:user"},
             self._timeout,
         )
+        error = payload.get("error")
+        if error is not None:
+            return {
+                "status": "failed",
+                "provider": "github",
+                "error": error,
+                "error_description": payload.get("error_description", ""),
+            }
         return {
             "status": "waiting_for_user",
             "provider": "github",
