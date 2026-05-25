@@ -1029,6 +1029,64 @@ pre {
   color: var(--muted);
 }
 
+.requirements-page,
+.requirements-attention,
+.requirements-all {
+  display: grid;
+  gap: 16px;
+}
+
+.requirements-attention {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 16px;
+}
+
+.requirements-attention h3 {
+  margin: 0;
+}
+
+.requirement-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.requirement-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.requirement-card[data-requirement-conflict="true"] {
+  border-color: #fecaca;
+}
+
+.requirement-statement {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.requirement-source-summary {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.requirement-support {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .project-status-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(280px, .9fr);

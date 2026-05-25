@@ -673,6 +673,27 @@ def test_app_js_renders_project_home_as_default_project_entry():
     assert ".project-home-preview-grid" in css
 
 
+def test_app_js_renders_requirements_page_and_cards():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+
+    for symbol in (
+        "function renderRequirements",
+        "function renderRequirementCard",
+        "function renderRequirementToolbar",
+        "function renderRequirementSourceSummary",
+    ):
+        assert symbol in content
+
+    assert 'api(`/api/projects/${projectId}/facts`)' in content
+    assert 'requirementRows(facts)' in content
+    assert 'supportingFactRows(facts)' in content
+    assert "requirement-card" in content
+    assert "requirements-page" in css
+    assert ".requirement-card" in css
+    assert ".requirements-attention" in css
+
+
 def test_project_home_body_and_preview_badges_track_project_state():
     content = (STATIC / "app.js").read_text(encoding="utf-8")
     css = (STATIC / "styles.css").read_text(encoding="utf-8")
@@ -833,10 +854,16 @@ def test_i18n_contains_p0_p1_ux_copy_for_each_language():
         "action.askWithEvidence",
         "action.generateHandover",
         "action.viewEvidence",
+        "action.viewSource",
         "action.confirmRequirement",
         "action.resolveConflict",
         "action.ignoreConflict",
         "action.retry",
+        "empty.requirements.title",
+        "empty.requirements.body",
+        "requirements.attentionTitle",
+        "requirement.supportingFacts",
+        "sources.drawer.title",
         "evidence.drawer.title",
         "evidence.drawer.loading",
         "evidence.drawer.openOriginal",

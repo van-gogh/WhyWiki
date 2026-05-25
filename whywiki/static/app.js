@@ -7,6 +7,7 @@ let languageBounceTimer = null;
 let authFlowId = 0;
 let githubPollTimer = null;
 let githubCopyResetTimer = null;
+const requirementFilterState = new Set(["all"]);
 let collaborationState = {
   accounts: [],
   workspace: { configured: false, workspace: null },
@@ -1745,8 +1746,110 @@ async function renderFacts(projectId) {
   return panel;
 }
 
+function renderRequirementSourceSummary(requirement) {
+  const count = requirementSourceCount(requirement);
+  const label = t("requirement.sourceCount").replace("{count}", String(count));
+  const summary = createElement("span", "requirement-source-summary", label);
+  return summary;
+}
+
+function renderRequirementCard(requirement, supportingFacts = []) {
+  const card = createElement("article", "requirement-card");
+  card.dataset.requirementId = requirement.id || "";
+  if (requirementStatusKind(requirement) === "conflict") {
+    card.dataset.requirementConflict = "true";
+  }
+
+  const header = createElement("header", "card-header");
+  const title = createElement("strong", "", requirement.statement || t("view.requirements.title"));
+  const badges = createElement("div", "badge-row");
+  badges.append(renderStatusBadge(requirementStatusLabel(requirement), requirementStatusKind(requirement)));
+  badges.append(renderRequirementSourceSummary(requirement));
+  header.append(title, badges);
+
+  const body = createElement("p", "requirement-statement", requirement.statement || "-");
+  const actions = createElement("div", "actions");
+  actions.append(
+    createActionButton(t("action.viewSource"), "tertiary", () => {
+      const drawer = card.querySelector(".evidence-drawer");
+      if (drawer) drawer.open = true;
+    }),
+    createActionButton(t("action.confirmRequirement"), "secondary", () => {
+      actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
+      updateFactStatus(requirement.id, "confirmed").then((updated) => {
+        actions.replaceChildren(renderOperationFeedback("success", t("badge.confirmed"), updated.statement || ""));
+      }).catch((error) => {
+        actions.replaceChildren(renderOperationFeedback("error", t("view.error"), error.message));
+      });
+    })
+  );
+
+  const support = createElement("div", "requirement-support");
+  const related = supportingFacts.slice(0, 3);
+  if (related.length) {
+    support.append(createElement("strong", "", t("requirement.supportingFacts")));
+    related.forEach((fact) => {
+      support.append(createElement("span", "", `${fieldValue(fact.fact_type)} · ${fact.statement || ""}`));
+    });
+  }
+
+  card.append(
+    header,
+    body,
+    support,
+    actions,
+    renderEvidenceDrawer(
+      evidenceItems(requirement),
+      t("sources.drawer.title"),
+      requirement.id ? `/api/projects/${requireProject()}/facts/${requirement.id}/evidence` : ""
+    )
+  );
+  return card;
+}
+
+function renderRequirementToolbar(requirements) {
+  const toolbar = createElement("div", "requirement-toolbar");
+  toolbar.append(createElement("h3", "", t("view.requirements.title")));
+  return toolbar;
+}
+
 async function renderRequirements(projectId) {
-  return renderFacts(projectId);
+  const facts = await api(`/api/projects/${projectId}/facts`);
+  const requirements = requirementRows(facts);
+  const supportingFacts = supportingFactRows(facts);
+  const panel = createPanel(t("view.requirements.title"));
+  panel.classList.add("requirements-page");
+
+  if (!requirements.length) {
+    panel.append(renderEmptyState({
+      title: t("empty.requirements.title"),
+      body: t("empty.requirements.body"),
+      actionLabel: t("action.generateEvidenceWiki"),
+      onAction: buildCurrentProject,
+      kind: "requirements",
+    }));
+    return panel;
+  }
+
+  const attention = reviewFactRows(requirements);
+  if (attention.length) {
+    const attentionSection = createElement("section", "requirements-attention");
+    attentionSection.append(createElement("h3", "", t("requirements.attentionTitle")));
+    const attentionGrid = createElement("div", "requirement-grid");
+    attention.slice(0, 3).forEach((requirement) => attentionGrid.append(renderRequirementCard(requirement, supportingFacts)));
+    attentionSection.append(attentionGrid);
+    panel.append(attentionSection);
+  }
+
+  const allSection = createElement("section", "requirements-all");
+  allSection.append(renderRequirementToolbar(requirements));
+  const grid = createElement("div", "requirement-grid");
+  visibleRequirementRows(requirements, requirementFilterState).forEach((requirement) => {
+    grid.append(renderRequirementCard(requirement, supportingFacts));
+  });
+  allSection.append(grid);
+  panel.append(allSection);
+  return panel;
 }
 
 function factStatusKind(fact) {
