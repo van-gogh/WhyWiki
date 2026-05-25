@@ -1,6 +1,6 @@
 # WhyWiki 功能状态台账
 
-最后更新：2026-05-25
+最后更新：2026-05-26
 
 这份文档用于长期维护 WhyWiki 的功能状态。每次新增、删除或改变功能行为时，都应同步更新这里。
 
@@ -45,7 +45,7 @@ WhyWiki 首板的核心闭环是：
 | Parser | XLSX 解析 | 部分完成 | optional parser 已存在，尽量保留 sheet/row 类 evidence。 |
 | Facts | 确定性事实抽取 | 已完成 | `whywiki/services/fact_extractor.py` 会抽取首板事实并保留 evidence pointer。 |
 | Facts | 事实类型 | 部分完成 | 已覆盖 requirement/api/code/experiment/deployment/document 风格事实；decision 抽取仍较浅。 |
-| Facts | 人工确认事实 | 已完成 | `PATCH /api/projects/{project_id}/facts/{fact_id}` 会持久化 `candidate`、`confirmed`、`needs_review` 状态；Web UI 的“确认这个事实”使用该 API。 |
+| Facts | 人工确认事实 | 已完成 | `PATCH /api/projects/{project_id}/facts/{fact_id}` 会持久化 `candidate`、`confirmed`、`needs_review` 状态；Web UI 的需求卡“确认这个需求”复用该 API。 |
 | Facts | LLM-assisted extraction | 计划中 | 等 deterministic behavior 稳定后再加，不能成为基础流程必需条件。 |
 | 冲突 | 多份 latest/final 文档 | 已完成 | 检测多个材料同时声称 `latest/final/最新版/最终版`。 |
 | 冲突 | API endpoint 不一致 | 已完成 | 检测类似 `/api/user/create` vs `/api/users/create` 的路径不一致。 |
@@ -63,12 +63,14 @@ WhyWiki 首板的核心闭环是：
 | Ask | 冲突类问题回答 | 已完成 | 例如 `这个项目当前有哪些冲突？` 会直接返回 open conflicts 和 evidence。 |
 | Ask | 生产级 RAG / vector search | 暂缓 | 不属于首板目标。 |
 | Web UI | 本地 dashboard shell | 已完成 | 静态页面由 FastAPI 提供，文件在 `whywiki/static/index.html`、`styles.css`、`app.js`、`i18n.js`。 |
-| Web UI | 项目首页与项目内导航 | 已完成 | 默认进入项目列表首页；左侧需求现状、原始文件、需求冲突点、需求问答等工作区导航只在打开具体项目后显示。见 `whywiki/static/index.html`、`whywiki/static/app.js` 和 `tests/test_web_assets.py`。 |
+| Web UI | 项目首页与项目内导航 | 已完成 | 默认进入项目列表首页；打开项目后默认进入项目主页，侧边导航为主页、需求、冲突、来源、问答、设置。见 `whywiki/static/index.html`、`whywiki/static/app.js` 和 `tests/test_web_assets.py`。 |
 | Web UI | 项目标签筛选与批量赋标 | 已完成 | 项目首页展示项目标签 chips，支持多选筛选、空标签提示、无匹配清除筛选；可通过标签栏新增标签并批量选择项目赋标，也可从项目卡片菜单打开居中弹窗维护单项目标签。 |
 | Web UI | 项目删除入口 | 已完成 | 项目卡片右上角三点菜单提供“删除”危险操作，删除前二次确认；删除当前项目会清空当前项目状态并刷新项目列表。 |
-| Web UI | 需求现状视图 | 已完成 | 展示 source/fact/conflict/wiki 指标和当前待审查摘要，并提供项目内摄入和生成入口。 |
-| Web UI | 原始文件视图 | 已完成 | 能列出来源，并通过 API 查看 source/block 内容。 |
-| Web UI | 需求冲突点视图 | 部分完成 | 能展示 conflicts 和 review facts；还缺 resolve/ignore 操作。 |
+| Web UI | 项目内主页 | 已完成 | 打开项目后默认进入项目主页；空项目引导连接本地文件夹或 GitHub 仓库，已有项目展示需求预览和查看全部需求入口。 |
+| Web UI | 需求页 | 已完成 | `需求` 页以卡片展示 `fact_type=requirement` 的用户可读需求，来源、证据和支撑事实在卡片详情中展开。 |
+| Web UI | 需求筛选与冲突跳转 | 已完成 | `全部需求` 工具栏提供可多选筛选 chips，并提供 `冲突 {current}/{total}` 上下跳转控件。 |
+| Web UI | 来源视图 | 已完成 | 能列出来源，并通过 API 查看 source/block 内容。 |
+| Web UI | 冲突视图 | 已完成 | 能展示 open conflicts 和待确认需求；冲突卡支持直接 resolve/ignore 操作。 |
 | Web UI | Wiki index | 已完成 | Wiki 索引在 topbar，不作为日常首页。 |
 | Web UI | 需求问答视图 | 已完成 | 有默认问题，渲染 answer 和 structured evidence。 |
 | Web UI | Settings / handover export | 部分完成 | Settings 能展示 handover；更完整的导出/下载体验未做。 |

@@ -102,8 +102,8 @@ def test_i18n_contains_all_dashboard_keys_for_each_language():
     keys = parser.i18n_keys | parser.placeholder_keys
     languages = parse_i18n_keys()
 
-    assert "nav.status" in keys
-    assert "nav.review" in keys
+    assert "nav.home" in keys
+    assert "nav.conflicts" in keys
     assert "nav.wikiIndex" in keys
     assert "search.placeholder" in keys
     for language, language_keys in languages.items():
@@ -119,9 +119,49 @@ def test_sidebar_buttons_expose_view_hooks():
     }
 
     assert parser.workspace_navs == 1
-    assert {"status", "sources", "review", "ask", "settings", "wiki"} <= views
+    assert {"home", "requirements", "review", "sources", "ask", "settings", "wiki"} <= views
     assert "start" not in views
     assert "handover" not in views
+
+
+def test_workspace_navigation_uses_project_task_language_and_order():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    nav_match = re.search(r"<nav data-workspace-nav>(?P<body>.*?)</nav>", html, re.S)
+    assert nav_match, "workspace navigation is missing"
+    nav_body = nav_match.group("body")
+
+    assert re.findall(r'data-view="([^"]+)"', nav_body) == [
+        "home",
+        "requirements",
+        "review",
+        "sources",
+        "ask",
+        "settings",
+    ]
+    assert re.findall(r'data-i18n="([^"]+)"', nav_body) == [
+        "nav.home",
+        "nav.requirements",
+        "nav.conflicts",
+        "nav.sources",
+        "nav.ask",
+        "nav.settings",
+    ]
+
+
+def test_i18n_uses_requirements_and_sources_for_primary_ui():
+    content = (STATIC / "i18n.js").read_text(encoding="utf-8")
+
+    assert '"nav.requirements": "Requirements"' in content
+    assert '"nav.sources": "Sources"' in content
+    assert '"nav.conflicts": "Conflicts"' in content
+    assert '"nav.requirements": "需求"' in content
+    assert '"nav.sources": "来源"' in content
+    assert '"nav.conflicts": "冲突"' in content
+    assert '"nav.facts":' not in content
+    assert '"action.confirmRequirement": "Confirm this requirement"' in content
+    assert '"action.confirmRequirement": "确认这个需求"' in content
+    assert "事实与证据" not in content
+    assert "确认这个事实" not in content
 
 
 def test_static_shell_does_not_expose_home_action_buttons():
@@ -443,14 +483,14 @@ def test_i18n_contains_dynamic_dashboard_keys_for_each_language():
         "ingest.ready",
         "build.loading",
         "build.ready",
-        "build.factsCreated",
+        "build.requirementsCreated",
         "build.conflictsCreated",
         "build.pagesCreated",
         "view.noProject",
         "view.loading",
         "view.error",
         "view.sources.title",
-        "view.facts.title",
+        "view.requirements.title",
         "view.wiki.title",
         "view.conflicts.title",
         "view.handover.title",
@@ -546,10 +586,11 @@ def test_projects_home_supports_multi_select_project_tags():
 def test_chinese_navigation_uses_demand_workspace_terms():
     content = (STATIC / "i18n.js").read_text(encoding="utf-8")
 
-    assert '"nav.status": "需求现状"' in content
-    assert '"nav.sources": "原始文件"' in content
-    assert '"nav.review": "需求冲突点"' in content
-    assert '"nav.ask": "需求问答"' in content
+    assert '"nav.home": "主页"' in content
+    assert '"nav.requirements": "需求"' in content
+    assert '"nav.conflicts": "冲突"' in content
+    assert '"nav.sources": "来源"' in content
+    assert '"nav.ask": "问答"' in content
 
 
 def test_i18n_does_not_expose_demo_product_copy():
@@ -632,6 +673,153 @@ def test_app_js_exposes_project_guidance_and_evidence_components():
         "/api/jobs/${jobId}",
     ):
         assert endpoint in content
+
+
+def test_app_js_defines_requirement_semantic_helpers():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    review_start = content.index("function reviewFactRows")
+    requirement_start = content.index("function requirementRows")
+    review_body = content[review_start:requirement_start]
+
+    for symbol in (
+        "function requirementRows",
+        "function supportingFactRows",
+        "function requirementStatusKind",
+        "function requirementStatusLabel",
+        "function requirementSourceCount",
+        "function sortRequirementRows",
+        "function visibleRequirementRows",
+    ):
+        assert symbol in content
+
+    assert 'fact.fact_type === "requirement"' in content
+    assert 'row.validity_status === "conflicting"' in content
+    assert 'row.status === "needs_review"' in content
+    assert 'fact.status === "candidate"' in review_body
+
+
+def test_app_js_renders_project_home_as_default_project_entry():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+
+    assert "function renderProjectHome" in content
+    assert "function renderRequirementPreview" in content
+    assert "function renderProjectHomeEmptySourceActions" in content
+    assert 'loadView("home")' in content
+    assert 'home: renderProjectHome' in content
+    assert 'requirements: renderRequirements' in content
+    assert 'showIngestForm("local")' in content
+    assert 'showIngestForm("git")' in content
+    assert ".project-home-hero" in css
+    assert ".project-home-preview-grid" in css
+
+
+def test_app_js_renders_requirements_page_and_cards():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+
+    for symbol in (
+        "function renderRequirements",
+        "function renderRequirementCard",
+        "function renderRequirementToolbar",
+        "function renderRequirementSourceSummary",
+    ):
+        assert symbol in content
+
+    assert 'api(`/api/projects/${projectId}/facts`)' in content
+    assert 'requirementRows(facts)' in content
+    assert 'supportingFactRows(facts)' in content
+    assert "requirement-card" in content
+    assert "requirements-page" in css
+    assert ".requirement-card" in css
+    assert ".requirements-attention" in css
+
+
+def test_requirements_page_exposes_multiselect_filters_and_conflict_jump():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+
+    for symbol in (
+        "let requirementFilterState",
+        "function toggleRequirementFilter",
+        "function renderRequirementFilterChip",
+        "function renderRequirementToolbar",
+        "function renderConflictJumpControl",
+        "function jumpToConflictRequirement",
+        "function createChevronIcon",
+    ):
+        assert symbol in content
+
+    assert "requirement-filter-chip" in content
+    assert "requirement-conflict-jump" in content
+    assert 'button.setAttribute("data-filter", filter)' in content
+    assert 'renderRequirementFilterChip("conflict"' in content
+    assert 'renderRequirementFilterChip("needs-review"' in content
+    assert 'renderRequirementFilterChip("confirmed"' in content
+    assert 'renderRequirementFilterChip("recent"' in content
+    assert 'renderRequirementFilterChip("source-backed"' in content
+    assert "scrollIntoView" in content
+    assert "'.requirements-all [data-requirement-conflict=\"true\"]'" in content
+    assert ".requirement-filter-chip" in css
+    assert ".requirement-conflict-jump" in css
+    assert ".requirement-card.is-jump-target" in css
+
+
+def test_project_home_body_and_preview_badges_track_project_state():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+    languages = parse_i18n_keys()
+    render_start = content.index("async function renderProjectHome")
+    status_start = content.index("async function renderStatus")
+    render_body = content[render_start:status_start]
+
+    required_keys = {
+        "projectHome.emptyBody",
+        "projectHome.generateBody",
+        "projectHome.noRequirementsBody",
+        "projectHome.readyBody",
+    }
+    for language, language_keys in languages.items():
+        assert not required_keys - language_keys, f"{language} missing keys: {sorted(required_keys - language_keys)}"
+
+    assert "function projectHomeBodyKey" in content
+    assert 'if (!sources.length) return "projectHome.emptyBody";' in content
+    assert 'if (requirements.length) return "projectHome.readyBody";' in content
+    assert "facts.length || visibleWikiPages(pages).length" in content
+    assert 'return hasGeneratedMaterial ? "projectHome.noRequirementsBody" : "projectHome.generateBody";' in content
+    assert 'requirements.length ? t("projectHome.readyBody") : t("projectHome.emptyBody")' not in render_body
+    assert 'createPanel(t("projectHome.title"))' not in render_body
+    assert 'panel.setAttribute("aria-label", t("projectHome.title"))' in render_body
+
+    for selector in (
+        ".status-badge-conflict",
+        ".status-badge-low-confidence",
+        ".status-badge-needs-review",
+        ".status-badge-confirmed",
+        ".status-badge-source-backed",
+    ):
+        assert selector in css
+
+
+def test_requirement_semantic_helpers_prioritize_evidence_gaps():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    status_start = content.index("function requirementStatusKind")
+    label_start = content.index("function requirementStatusLabel")
+    status_body = content[status_start:label_start]
+    visible_start = content.index("function visibleRequirementRows")
+    evidence_start = content.index("function evidenceItems")
+    visible_body = content[visible_start:evidence_start]
+
+    conflict_pos = status_body.index('row.validity_status === "conflicting"')
+    low_confidence_pos = status_body.index('!evidenceItems(row).length')
+    needs_review_pos = status_body.index('row.status === "needs_review"')
+    confirmed_pos = status_body.index('row.status === "confirmed"')
+
+    assert conflict_pos < low_confidence_pos < needs_review_pos < confirmed_pos
+    assert 'filters.has("source-backed") && kind === "source-backed"' in content
+    assert 'filters.has("source-backed") && requirementSourceCount(row) > 0' not in content
+    assert "row.updated_at || row.recent || row.recently_touched" in visible_body
+    assert "row.created_at" not in visible_body
 
 
 def test_styles_define_whywiki_visual_language_and_states():
@@ -737,10 +925,16 @@ def test_i18n_contains_p0_p1_ux_copy_for_each_language():
         "action.askWithEvidence",
         "action.generateHandover",
         "action.viewEvidence",
-        "action.confirmFact",
+        "action.viewSource",
+        "action.confirmRequirement",
         "action.resolveConflict",
         "action.ignoreConflict",
         "action.retry",
+        "empty.requirements.title",
+        "empty.requirements.body",
+        "requirements.attentionTitle",
+        "requirement.supportingFacts",
+        "sources.drawer.title",
         "evidence.drawer.title",
         "evidence.drawer.loading",
         "evidence.drawer.openOriginal",
