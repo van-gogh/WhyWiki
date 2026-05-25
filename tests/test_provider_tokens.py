@@ -14,6 +14,7 @@ from whywiki.collaboration.tokens import (
     TokenStoreUnavailable,
     default_token_store,
     token_store_key,
+    xdg_token_path,
 )
 
 
@@ -121,3 +122,30 @@ def test_keyring_token_store_reports_broken_backend_unavailable(monkeypatch, tmp
 
     assert isinstance(store, FileTokenStore)
     assert store.path == tmp_path / "data" / "auth" / "tokens.json"
+
+
+def test_xdg_token_path_uses_xdg_data_home(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    assert xdg_token_path() == tmp_path / "xdg" / "whywiki" / "tokens.json"
+
+
+def test_xdg_token_path_defaults_to_home_local_share(monkeypatch, tmp_path):
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    assert xdg_token_path() == tmp_path / "home" / ".local" / "share" / "whywiki" / "tokens.json"
+
+
+def test_default_token_store_uses_xdg_file_on_linux_when_keyring_unavailable(monkeypatch, tmp_path):
+    monkeypatch.setattr(KeyringTokenStore, "available", lambda self: False)
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    store = default_token_store()
+    assert isinstance(store, FileTokenStore)
+    assert store.path == tmp_path / "xdg" / "whywiki" / "tokens.json"
+
+
+def test_default_token_store_raises_on_non_linux_when_keyring_unavailable(monkeypatch):
+    monkeypatch.setattr(KeyringTokenStore, "available", lambda self: False)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    with pytest.raises(TokenStoreUnavailable):
+        default_token_store()

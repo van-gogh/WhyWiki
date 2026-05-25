@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
-
-from whywiki.config import get_data_dir
 
 from .jsonio import read_json
 from .models import ProviderIdentity
@@ -112,12 +111,6 @@ class FileTokenStore:
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
 
-    @classmethod
-    def from_env(cls, path: Path) -> FileTokenStore:
-        if os.getenv("WHYWIKI_ALLOW_FILE_TOKEN_STORE") != "1":
-            raise TokenStoreUnavailable("set WHYWIKI_ALLOW_FILE_TOKEN_STORE=1 to use file token storage")
-        return cls(path)
-
     def save(self, identity: ProviderIdentity, token: ProviderToken) -> None:
         payload = self._read()
         payload[identity.identity_key] = json.loads(token.to_json())
@@ -201,11 +194,24 @@ class FileTokenStore:
         return paths
 
 
+def xdg_token_path() -> Path:
+    xdg_data_home = os.environ.get("XDG_DATA_HOME")
+    if xdg_data_home:
+        base = Path(xdg_data_home)
+    else:
+        base = Path.home() / ".local" / "share"
+    return base / "whywiki" / "tokens.json"
+
+
 def default_token_store() -> TokenStore:
     keyring_store = KeyringTokenStore()
     if keyring_store.available():
         return keyring_store
-    return FileTokenStore.from_env(get_data_dir() / "auth" / "tokens.json")
+    if sys.platform == "linux":
+        return FileTokenStore(xdg_token_path())
+    raise TokenStoreUnavailable(
+        "No secure token storage available. Install and configure a keyring backend."
+    )
 
 
 def _import_keyring() -> Any:
