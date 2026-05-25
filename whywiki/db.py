@@ -36,9 +36,35 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     ensure_column(conn, "projects", "tags_json", "TEXT DEFAULT '[]'")
     ensure_column(conn, "sources", "version_hint", "TEXT DEFAULT ''")
     ensure_column(conn, "facts", "validity_status", "TEXT DEFAULT 'unknown'")
+    ensure_column(conn, "facts", "superseded_by_fact_id", "TEXT DEFAULT ''")
+    ensure_column(conn, "facts", "review_note", "TEXT DEFAULT ''")
+    ensure_column(conn, "facts", "updated_at", "TEXT DEFAULT ''")
     ensure_column(conn, "conflicts", "conflict_key", "TEXT DEFAULT ''")
 
-    conn.execute("UPDATE schema_version SET version = 4")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS requirement_decisions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            conflict_id TEXT DEFAULT '',
+            action TEXT NOT NULL,
+            accepted_fact_id TEXT DEFAULT '',
+            created_fact_id TEXT DEFAULT '',
+            superseded_fact_ids_json TEXT DEFAULT '[]',
+            rejected_fact_ids_json TEXT DEFAULT '[]',
+            reason TEXT DEFAULT '',
+            evidence_json TEXT DEFAULT '[]',
+            created_at TEXT NOT NULL
+        );
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_requirement_decisions_project ON requirement_decisions(project_id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_requirement_decisions_conflict ON requirement_decisions(project_id, conflict_id)"
+    )
+
+    conn.execute("UPDATE facts SET updated_at = created_at WHERE updated_at = ''")
+    conn.execute("UPDATE schema_version SET version = 5")
 
 
 def init_db(conn: sqlite3.Connection | None = None) -> None:

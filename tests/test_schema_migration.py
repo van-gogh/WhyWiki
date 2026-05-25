@@ -36,6 +36,29 @@ def test_init_db_adds_schema_version_and_review_fields(tmp_path):
     }.issubset(columns(conn, "operation_jobs"))
 
 
+def test_init_db_adds_requirement_lifecycle_fields(tmp_path):
+    db_path = tmp_path / "whywiki.db"
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+
+    init_db(conn)
+
+    assert {"superseded_by_fact_id", "review_note", "updated_at"}.issubset(columns(conn, "facts"))
+    assert {
+        "id",
+        "project_id",
+        "conflict_id",
+        "action",
+        "accepted_fact_id",
+        "created_fact_id",
+        "superseded_fact_ids_json",
+        "rejected_fact_ids_json",
+        "reason",
+        "evidence_json",
+        "created_at",
+    }.issubset(columns(conn, "requirement_decisions"))
+
+
 def test_init_db_is_idempotent(tmp_path):
     db_path = tmp_path / "whywiki.db"
     conn = sqlite3.connect(db_path)
@@ -45,5 +68,9 @@ def test_init_db_is_idempotent(tmp_path):
     init_db(conn)
 
     assert "validity_status" in columns(conn, "facts")
+    assert "superseded_by_fact_id" in columns(conn, "facts")
     assert "conflict_key" in columns(conn, "conflicts")
     assert "progress" in columns(conn, "operation_jobs")
+    assert "requirement_decisions" in {
+        row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+    }
