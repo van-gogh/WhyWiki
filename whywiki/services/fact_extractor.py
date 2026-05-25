@@ -55,6 +55,14 @@ def should_preserve_unmatched_fact(row: sqlite3.Row, referenced_fact_ids: set[st
     return False
 
 
+def lifecycle_priority(row: sqlite3.Row, referenced_fact_ids: set[str]) -> tuple[int, str]:
+    if row["id"] in referenced_fact_ids:
+        return (0, row["created_at"] or "")
+    if should_preserve_unmatched_fact(row, referenced_fact_ids):
+        return (1, row["created_at"] or "")
+    return (2, row["created_at"] or "")
+
+
 def classify_fact(block_type: str, text: str) -> tuple[str, float]:
     t = text.lower()
     if "endpoint" in block_type or ENDPOINT_RE.search(text):
@@ -79,10 +87,11 @@ def rebuild_facts(project_id: str, conn: sqlite3.Connection | None = None) -> di
     conn = conn or connect()
     init_db(conn)
     existing_rows = conn.execute("SELECT * FROM facts WHERE project_id = ?", (project_id,)).fetchall()
+    referenced_fact_ids = decision_fact_ids(conn, project_id)
+    existing_rows = sorted(existing_rows, key=lambda row: lifecycle_priority(row, referenced_fact_ids))
     existing_by_identity: dict[tuple[str, str, str], list[sqlite3.Row]] = {}
     for row in existing_rows:
         existing_by_identity.setdefault(row_fact_identity(row), []).append(row)
-    referenced_fact_ids = decision_fact_ids(conn, project_id)
 
     rows = conn.execute(
         """

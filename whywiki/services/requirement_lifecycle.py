@@ -11,6 +11,7 @@ OUTDATED_REQUIREMENT_STATUSES = {"superseded", "rejected", "historical"}
 ACTIVE_REQUIREMENT_STATUSES = {"current", "confirmed", "needs_review", "candidate"}
 SNAPSHOT_GROUPS = ("current", "needs_review", "superseded", "historical", "rejected", "conflicting")
 DECISION_ACTIONS = {"accept_fact", "merge_requirement", "mark_outdated", "leave_for_later", "ignore_conflict"}
+REQUIREMENT_CONFLICT_TYPES = {"requirement", "requirement_conflict", "fact_statement_conflict"}
 
 
 class RequirementLifecycleNotFound(ValueError):
@@ -292,6 +293,12 @@ def _ensure_conflict(conn: sqlite3.Connection, project_id: str, conflict_id: str
     return row
 
 
+def _ensure_requirement_conflict(conflict: sqlite3.Row | dict[str, Any]) -> None:
+    conflict_type = row_value(conflict, "conflict_type", "")
+    if conflict_type not in REQUIREMENT_CONFLICT_TYPES:
+        raise ValueError("Requirement decisions can only resolve requirement conflicts")
+
+
 def _update_rejected_facts(
     conn: sqlite3.Connection,
     project_id: str,
@@ -333,6 +340,7 @@ def record_requirement_decision(
     conn.execute(f"SAVEPOINT {savepoint_name}")
     try:
         conflict = _ensure_conflict(conn, project_id, conflict_id)
+        _ensure_requirement_conflict(conflict)
         accepted_fact_id = accepted_fact_id.strip()
         superseded_ids = _normalized_ids(superseded_fact_ids or [], "superseded_fact_ids")
         rejected_ids = _normalized_ids(rejected_fact_ids or [], "rejected_fact_ids")

@@ -2347,6 +2347,7 @@ function evidenceOverlaps(conflictEvidence, requirementEvidence) {
 }
 
 function requirementsForConflict(conflict, requirements = []) {
+  if (!["requirement", "requirement_conflict", "fact_statement_conflict"].includes(conflict.conflict_type)) return [];
   const conflictEvidence = rowEvidenceItems(conflict);
   const directIds = new Set(conflictEvidence.map((item) => item.fact_id).filter(Boolean).map(String));
   return requirements.filter((requirement) => {
