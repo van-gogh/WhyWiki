@@ -754,3 +754,55 @@ def test_i18n_contains_p0_p1_ux_copy_for_each_language():
 
     for language, language_keys in languages.items():
         assert not required_keys - language_keys, f"{language} missing keys: {sorted(required_keys - language_keys)}"
+
+
+def test_i18n_contains_requirement_lifecycle_terms_for_each_language():
+    languages = parse_i18n_keys()
+    keys = {
+        "requirement.status.current",
+        "requirement.status.candidate",
+        "requirement.status.needsReview",
+        "requirement.status.confirmed",
+        "requirement.status.superseded",
+        "requirement.status.rejected",
+        "requirement.status.historical",
+        "requirement.status.conflicting",
+        "source.status.active",
+        "source.status.partiallyOutdated",
+        "source.status.outdated",
+        "source.status.conflicting",
+        "source.status.referenceOnly",
+        "action.acceptAsCurrent",
+        "action.mergeRequirement",
+        "action.markOutdated",
+        "action.leaveForLater",
+        "action.ignoreThisConflict",
+        "decision.reasonPlaceholder",
+    }
+    for language, language_keys in languages.items():
+        assert not keys - language_keys, f"{language} missing keys: {sorted(keys - language_keys)}"
+
+    content = (STATIC / "i18n.js").read_text(encoding="utf-8")
+    assert '"requirement.status.current": "当前有效"' in content
+    assert '"requirement.status.superseded": "已被替代"' in content
+    assert '"requirement.status.current": "Current"' in content
+    assert '"requirement.status.superseded": "Superseded"' in content
+
+
+def test_app_js_uses_snapshot_and_localized_lifecycle_labels():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+
+    for symbol in (
+        "function requirementLifecycleStatus",
+        "function requirementStatusLabel",
+        "function renderRequirementSnapshot",
+        "function submitRequirementDecision",
+        "/api/projects/${projectId}/requirements/snapshot",
+        "/api/projects/${projectId}/conflicts/${conflictId}/decision",
+    ):
+        assert symbol in content
+    assert "fieldValue(conflict.status)" not in content
+    assert ".status-badge-current" in css
+    assert ".status-badge-superseded" in css
+    assert ".source-status-partially_outdated" in css

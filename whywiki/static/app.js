@@ -32,6 +32,10 @@ function t(key) {
   return dictionary()[key] || key;
 }
 
+function currentLanguage() {
+  return normalizeLanguage(document.documentElement.lang);
+}
+
 function storageGet(key) {
   try {
     return localStorage.getItem(key);
@@ -1277,6 +1281,38 @@ function reviewFactRows(facts) {
   return facts.filter((fact) => fact.status === "needs_review" || fact.validity_status === "conflicting");
 }
 
+function lifecycleKey(status = "") {
+  if (status === "needs_review") return "needsReview";
+  if (status === "partially_outdated") return "partiallyOutdated";
+  if (status === "reference_only") return "referenceOnly";
+  return status || "";
+}
+
+function requirementLifecycleStatus(fact = {}) {
+  const lifecycleStatus = lifecycleKey(fact.lifecycle_status);
+  if (lifecycleStatus) return lifecycleStatus;
+  if (fact.validity_status === "current") return "current";
+  if (fact.validity_status === "superseded") return "superseded";
+  if (fact.validity_status === "rejected") return "rejected";
+  if (fact.validity_status === "historical") return "historical";
+  if (fact.validity_status === "conflicting") return "conflicting";
+  if (fact.status === "candidate") return "candidate";
+  if (fact.status === "confirmed") return "confirmed";
+  if (fact.status === "needs_review") return "needsReview";
+  if (fact.status === "rejected") return "rejected";
+  return "current";
+}
+
+function requirementStatusLabel(fact = {}) {
+  const status = requirementLifecycleStatus(fact);
+  return t(`requirement.status.${status}`);
+}
+
+function sourceMemoryStatusLabel(status = "active") {
+  const normalized = lifecycleKey(status);
+  return t(`source.status.${normalized}`);
+}
+
 function evidenceItems(row) {
   if (!row || !("evidence_json" in row)) return [];
   return parseJsonList(row.evidence_json).filter((item) => item && typeof item === "object");
@@ -1953,11 +1989,60 @@ async function renderSources(projectId) {
   return panel;
 }
 
+async function loadRequirementSnapshot(projectId) {
+  const currentLang = currentLanguage();
+  return api(`/api/projects/${projectId}/requirements/snapshot?language=${encodeURIComponent(currentLang)}`);
+}
+
+function renderRequirementSnapshot(snapshot) {
+  const wrapper = createElement("div", "requirement-snapshot");
+  const groups = [
+    ["current", "requirement.status.current"],
+    ["needs_review", "requirement.status.needsReview"],
+    ["superseded", "requirement.status.superseded"],
+    ["historical", "requirement.status.historical"],
+  ];
+  groups.forEach(([key, labelKey]) => {
+    const rows = snapshot[key] || [];
+    const section = createElement("section", `requirement-snapshot-section requirement-snapshot-${key}`);
+    section.append(createElement("h3", "", t(labelKey)));
+    if (rows.length) {
+      const grid = createElement("div", "fact-grid");
+      rows.forEach((fact) => grid.append(renderFactCard(fact)));
+      section.append(grid);
+    } else {
+      section.append(createElement("p", "muted", t("view.empty")));
+    }
+    wrapper.append(section);
+  });
+
+  const sourceStatuses = snapshot.source_statuses || [];
+  if (sourceStatuses.length) {
+    const section = createElement("section", "requirement-snapshot-section requirement-snapshot-sources");
+    section.append(createElement("h3", "", t("status.recent")));
+    const grid = createElement("div", "source-status-grid");
+    sourceStatuses.forEach((source) => {
+      const card = createElement("article", "record-card source-status-card");
+      const status = source.status || "active";
+      card.append(
+        createElement("strong", "", source.title || source.path || source.source_id || t("view.sources.title")),
+        createElement("span", `source-status source-status-${status}`, sourceMemoryStatusLabel(status))
+      );
+      if (source.path) card.append(createElement("p", "source-path", source.path));
+      grid.append(card);
+    });
+    section.append(grid);
+    wrapper.append(section);
+  }
+  return wrapper;
+}
+
 async function renderFacts(projectId) {
-  const facts = await api(`/api/projects/${projectId}/facts`);
+  const snapshot = await loadRequirementSnapshot(projectId);
   const panel = createPanel(t("view.facts.title"));
-  panel.append(createElement("p", "status-intro", t("empty.facts.body")));
-  if (!facts.length) {
+  panel.append(createElement("p", "status-intro", t("status.subtitle")));
+  const total = ["current", "needs_review", "superseded", "historical"].reduce((sum, key) => sum + (snapshot[key] || []).length, 0);
+  if (!total) {
     panel.append(renderEmptyState({
       title: t("empty.facts.title"),
       body: t("empty.facts.body"),
@@ -1967,22 +2052,16 @@ async function renderFacts(projectId) {
     }));
     return panel;
   }
-  const grid = createElement("div", "fact-grid");
-  facts.forEach((fact) => grid.append(renderFactCard(fact)));
-  panel.append(grid);
+  panel.append(renderRequirementSnapshot(snapshot));
   return panel;
 }
 
 function factStatusKind(fact) {
-  if (fact.validity_status === "conflicting" || fact.status === "needs_review") return "review";
-  if (fact.validity_status === "current" || fact.status === "confirmed") return "evidence";
-  return "";
+  return requirementLifecycleStatus(fact);
 }
 
 function factStatusLabel(fact) {
-  if (fact.validity_status === "conflicting" || fact.status === "needs_review") return t("status.needsReview");
-  if (fact.validity_status === "current" || fact.status === "confirmed") return t("status.evidence");
-  return t("status.stable");
+  return requirementStatusLabel(fact);
 }
 
 async function updateFactStatus(factId, status) {
@@ -2141,7 +2220,7 @@ async function renderStatus(projectId) {
     const reviewGrid = document.createElement("div");
     reviewGrid.className = "state-grid";
     conflicts.slice(0, 4).forEach((conflict) => {
-      reviewGrid.append(renderConflictCard(conflict));
+      reviewGrid.append(renderConflictCard(conflict, facts));
     });
     appendSection(panel, t("status.review"), reviewGrid);
   } else {
@@ -2155,7 +2234,10 @@ async function renderStatus(projectId) {
 }
 
 async function renderConflicts(projectId) {
-  const conflicts = await api(`/api/projects/${projectId}/conflicts`);
+  const [conflicts, snapshot] = await Promise.all([
+    api(`/api/projects/${projectId}/conflicts`),
+    loadRequirementSnapshot(projectId),
+  ]);
   const panel = createPanel(t("view.conflicts.title"));
   if (!conflicts.length) {
     panel.append(renderEmptyState({
@@ -2166,7 +2248,8 @@ async function renderConflicts(projectId) {
     return panel;
   }
   const grid = createElement("div", "conflict-grid");
-  conflicts.forEach((conflict) => grid.append(renderConflictCard(conflict)));
+  const requirements = snapshotRequirements(snapshot);
+  conflicts.forEach((conflict) => grid.append(renderConflictCard(conflict, requirements)));
   panel.append(grid);
   return panel;
 }
@@ -2181,7 +2264,98 @@ async function updateConflictStatus(conflictId, status) {
   await loadView("review");
 }
 
-function renderConflictCard(conflict) {
+async function submitRequirementDecision(conflictId, payload) {
+  const projectId = requireProject();
+  if (!projectId) return null;
+  return api(`/api/projects/${projectId}/conflicts/${conflictId}/decision`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+function snapshotRequirements(snapshot = {}) {
+  return ["current", "needs_review", "superseded", "historical", "rejected", "conflicting"]
+    .flatMap((key) => snapshot[key] || []);
+}
+
+function selectableRequirementOptions(requirements = []) {
+  const selectable = new Set(["candidate", "needsReview", "confirmed", "current", "conflicting"]);
+  return requirements.filter((item) => selectable.has(requirementLifecycleStatus(item)));
+}
+
+function renderRequirementSelect(requirements, labelText, multiple = false) {
+  const label = document.createElement("label");
+  const text = createElement("span", "", labelText);
+  const select = document.createElement("select");
+  if (multiple) select.multiple = true;
+  if (!multiple) {
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = t("view.empty");
+    select.append(empty);
+  }
+  selectableRequirementOptions(requirements).forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = `${requirementStatusLabel(item)} · ${item.statement || item.id}`;
+    select.append(option);
+  });
+  label.append(text, select);
+  return { label, select };
+}
+
+function selectedOptions(select) {
+  return Array.from(select.selectedOptions).map((option) => option.value).filter(Boolean);
+}
+
+function renderConflictDecisionControls(conflict, actions, requirements = []) {
+  const controls = createElement("div", "decision-controls");
+  const accepted = renderRequirementSelect(requirements, t("action.acceptAsCurrent"));
+  const superseded = renderRequirementSelect(requirements, t("requirement.status.superseded"), true);
+  const reason = document.createElement("input");
+  reason.type = "text";
+  reason.placeholder = t("decision.reasonPlaceholder");
+  const showError = (error) => {
+    actions.replaceChildren(renderOperationFeedback("error", t("view.error"), error.message || String(error)));
+  };
+  const accept = createActionButton(t("action.acceptAsCurrent"), "primary", () => {
+    const acceptedFactId = accepted.select.value;
+    if (!acceptedFactId) {
+      actions.replaceChildren(renderOperationFeedback("error", t("view.error"), t("empty.facts.body")));
+      return;
+    }
+    actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
+    submitRequirementDecision(conflict.id, {
+      action: "accept_fact",
+      accepted_fact_id: acceptedFactId,
+      superseded_fact_ids: selectedOptions(superseded.select).filter((id) => id !== acceptedFactId),
+      reason: reason.value,
+    }).then(() => loadView("review")).catch(showError);
+  });
+  const later = createActionButton(t("action.leaveForLater"), "tertiary", () => {
+    actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
+    submitRequirementDecision(conflict.id, { action: "leave_for_later", reason: reason.value }).then(() => loadView("review")).catch(showError);
+  });
+  const ignore = createActionButton(t("action.ignoreThisConflict"), "tertiary", () => {
+    actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
+    submitRequirementDecision(conflict.id, { action: "ignore_conflict", reason: reason.value }).then(() => loadView("review")).catch(showError);
+  });
+  if (conflict.status === "resolved" || conflict.status === "ignored") {
+    accept.disabled = true;
+    later.disabled = true;
+    ignore.disabled = true;
+  }
+  controls.append(accepted.label, superseded.label, reason, accept, later, ignore);
+  return controls;
+}
+
+function conflictStatusLabel(conflict) {
+  if (conflict.status === "ignored") return t("action.ignoreThisConflict");
+  if (conflict.status === "resolved") return t("action.resolveConflict");
+  return t("requirement.status.conflicting");
+}
+
+function renderConflictCard(conflict, requirements = []) {
   const card = createElement("article", `conflict-card conflict-card-${conflict.severity || "medium"}`);
   const projectId = requireProject();
   const conflictId = conflict.id;
@@ -2191,29 +2365,13 @@ function renderConflictCard(conflict) {
   badges.append(
     renderStatusBadge(t("badge.conflict"), "conflict"),
     renderStatusBadge(fieldValue(conflict.severity), conflict.severity || "medium"),
-    renderStatusBadge(fieldValue(conflict.status), conflict.status || "open")
+    renderStatusBadge(conflictStatusLabel(conflict), conflict.status || "open")
   );
   header.append(title, badges);
   const description = createElement("p", "", conflict.description || "-");
   const evidence = evidenceItems(conflict);
   const actions = createElement("div", "actions");
-  const resolve = createActionButton(t("action.resolveConflict"), "primary", () => {
-    actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
-    updateConflictStatus(conflict.id, "resolved").catch((error) => {
-      actions.replaceChildren(renderOperationFeedback("error", t("view.error"), error.message));
-    });
-  });
-  const ignore = createActionButton(t("action.ignoreConflict"), "tertiary", () => {
-    actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
-    updateConflictStatus(conflict.id, "ignored").catch((error) => {
-      actions.replaceChildren(renderOperationFeedback("error", t("view.error"), error.message));
-    });
-  });
-  if (conflict.status === "resolved" || conflict.status === "ignored") {
-    resolve.disabled = true;
-    ignore.disabled = true;
-  }
-  actions.append(resolve, ignore);
+  actions.append(renderConflictDecisionControls(conflict, actions, requirements));
   card.append(
     header,
     description,
@@ -2228,9 +2386,10 @@ function renderConflictCard(conflict) {
 }
 
 async function renderReview(projectId) {
-  const [conflicts, facts] = await Promise.all([
+  const [conflicts, facts, snapshot] = await Promise.all([
     api(`/api/projects/${projectId}/conflicts`),
     api(`/api/projects/${projectId}/facts`),
+    loadRequirementSnapshot(projectId),
   ]);
   const panel = createPanel(t("review.title"));
   const intro = document.createElement("p");
@@ -2240,7 +2399,8 @@ async function renderReview(projectId) {
 
   if (conflicts.length) {
     const grid = createElement("div", "conflict-grid");
-    conflicts.forEach((conflict) => grid.append(renderConflictCard(conflict)));
+    const requirements = snapshotRequirements(snapshot);
+    conflicts.forEach((conflict) => grid.append(renderConflictCard(conflict, requirements)));
     appendSection(panel, t("view.conflicts.title"), grid);
   } else {
     appendSection(panel, t("view.conflicts.title"), renderEmptyState({
