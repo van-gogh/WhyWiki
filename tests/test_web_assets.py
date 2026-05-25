@@ -653,6 +653,22 @@ def test_app_js_defines_requirement_semantic_helpers():
     assert 'row.status === "needs_review"' in content
 
 
+def test_app_js_renders_project_home_as_default_project_entry():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+
+    assert "function renderProjectHome" in content
+    assert "function renderRequirementPreview" in content
+    assert "function renderProjectHomeEmptySourceActions" in content
+    assert 'loadView("home")' in content
+    assert 'home: renderProjectHome' in content
+    assert 'requirements: renderRequirements' in content
+    assert 'showIngestForm("local")' in content
+    assert 'showIngestForm("git")' in content
+    assert ".project-home-hero" in css
+    assert ".project-home-preview-grid" in css
+
+
 def test_requirement_semantic_helpers_prioritize_evidence_gaps():
     content = (STATIC / "app.js").read_text(encoding="utf-8")
     status_start = content.index("function requirementStatusKind")

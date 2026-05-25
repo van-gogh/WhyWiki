@@ -806,7 +806,7 @@ async function ensureCurrentProject() {
 function selectProject(project) {
   setCurrentProject(project);
   updateWorkspaceChrome(true);
-  loadView("status");
+  loadView("home");
 }
 
 async function deleteProject(project) {
@@ -1526,7 +1526,7 @@ function showCreateProjectForm() {
         }),
       });
       setCurrentProject(project);
-      await loadView("status");
+      await loadView("home");
     } catch (error) {
       status.replaceChildren(renderOperationFeedback("error", t("view.error"), `${error.message} ${t("operation.error.recovery")}`));
       submit.disabled = false;
@@ -1561,7 +1561,7 @@ function renderNoProjectAction() {
   return panel;
 }
 
-function showIngestForm() {
+function showIngestForm(preferredSourceType = "local") {
   const appNode = appContainer();
   if (!appNode) return;
   setActiveView("");
@@ -1591,6 +1591,7 @@ function showIngestForm() {
     option.textContent = value === "git" ? t("badge.git") : t("badge.document");
     sourceType.append(option);
   });
+  sourceType.value = preferredSourceType === "git" ? "git" : "local";
   const status = document.createElement("p");
   status.className = "status-line";
   const submit = document.createElement("button");
@@ -1744,6 +1745,10 @@ async function renderFacts(projectId) {
   return panel;
 }
 
+async function renderRequirements(projectId) {
+  return renderFacts(projectId);
+}
+
 function factStatusKind(fact) {
   if (fact.validity_status === "conflicting" || fact.status === "needs_review") return "review";
   if (fact.validity_status === "current" || fact.status === "confirmed") return "evidence";
@@ -1872,6 +1877,80 @@ function appendSection(parent, titleText, child) {
 
 function visibleWikiPages(pages) {
   return pages.filter((page) => page.slug !== "handover");
+}
+
+function renderProjectHomeEmptySourceActions() {
+  const actions = createElement("div", "actions project-home-source-actions");
+  actions.append(
+    createActionButton(t("action.connectLocalSource"), "primary", () => showIngestForm("local")),
+    createActionButton(t("action.connectGithubSource"), "secondary", () => showIngestForm("git"))
+  );
+  return actions;
+}
+
+function renderRequirementPreview(requirements) {
+  const grid = createElement("div", "project-home-preview-grid");
+  requirements.slice(0, 3).forEach((requirement) => {
+    const card = createElement("article", "requirement-preview-card");
+    const header = createElement("header", "card-header");
+    header.append(
+      createElement("strong", "", requirement.statement || t("view.requirements.title")),
+      renderStatusBadge(requirementStatusLabel(requirement), requirementStatusKind(requirement))
+    );
+    const sourceCount = requirementSourceCount(requirement);
+    const sourceLabel = t("requirement.sourceCount").replace("{count}", String(sourceCount));
+    card.append(header, createElement("p", "", sourceLabel));
+    grid.append(card);
+  });
+  return grid;
+}
+
+async function renderProjectHome(projectId) {
+  const [sources, facts, conflicts, pages] = await Promise.all([
+    api(`/api/projects/${projectId}/sources`),
+    api(`/api/projects/${projectId}/facts`),
+    api(`/api/projects/${projectId}/conflicts`),
+    api(`/api/projects/${projectId}/wiki`),
+  ]);
+  const requirements = requirementRows(facts);
+  const state = deriveProjectState({ sources, facts, conflicts, pages });
+  const panel = createPanel(t("projectHome.title"));
+  panel.classList.add("project-home-workspace");
+
+  const hero = createElement("section", "project-home-hero");
+  const copy = createElement("div", "project-home-copy");
+  copy.append(
+    renderStatusBadge(t(`workflow.${state.stage}`), state.stage),
+    createElement("h1", "", projectDisplayName()),
+    createElement("p", "", requirements.length ? t("projectHome.readyBody") : t("projectHome.emptyBody"))
+  );
+  const stats = createElement("div", "project-home-stats");
+  stats.append(
+    createMetric(t("status.metric.sources"), sources.length),
+    createMetric(t("status.metric.requirements"), requirements.length),
+    createMetric(t("status.metric.conflicts"), visibleConflictRows(conflicts).length),
+    createMetric(t("status.metric.wiki"), visibleWikiPages(pages).length)
+  );
+  hero.append(copy, stats);
+  panel.append(hero);
+
+  if (!sources.length) {
+    panel.append(renderProjectHomeEmptySourceActions());
+    return panel;
+  }
+
+  if (!requirements.length) {
+    panel.append(renderNextActionPanel({ nextAction: "generateEvidenceWiki" }));
+    return panel;
+  }
+
+  const focus = reviewFactRows(requirements).length ? reviewFactRows(requirements) : requirements;
+  panel.append(
+    createElement("h2", "project-home-section-title", t("projectHome.previewTitle")),
+    renderRequirementPreview(focus),
+    createActionButton(t("action.viewAllRequirements"), "primary", () => loadView("requirements"))
+  );
+  return panel;
 }
 
 async function renderStatus(projectId) {
@@ -2231,11 +2310,9 @@ async function loadView(view) {
     }
 
     const renderers = {
-      home: renderStatus,
-      requirements: renderFacts,
-      status: renderStatus,
+      home: renderProjectHome,
+      requirements: renderRequirements,
       sources: renderSources,
-      facts: renderFacts,
       wiki: renderWiki,
       conflicts: renderConflicts,
       review: renderReview,

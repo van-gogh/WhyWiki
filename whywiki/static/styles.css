@@ -957,6 +957,78 @@ pre {
   color: var(--muted);
 }
 
+.project-home-workspace {
+  display: grid;
+  gap: 18px;
+}
+
+.project-home-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(220px, .8fr);
+  gap: 18px;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--purple);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 22px;
+}
+
+.project-home-copy {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.project-home-copy h1 {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.project-home-copy p {
+  margin: 0;
+  max-width: 680px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.project-home-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.project-home-source-actions {
+  justify-content: flex-start;
+}
+
+.project-home-section-title {
+  margin: 0;
+  font-size: 18px;
+}
+
+.project-home-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.requirement-preview-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.requirement-preview-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
 .project-status-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(280px, .9fr);
@@ -1499,6 +1571,14 @@ button:disabled {
   .wiki-reader,
   .settings-grid {
     grid-template-columns: 1fr;
+  }
+
+  .project-home-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .project-home-stats {
+    grid-template-columns: 1fr 1fr;
   }
 
   .next-action-panel {
