@@ -767,6 +767,14 @@ def test_i18n_contains_requirement_lifecycle_terms_for_each_language():
         "requirement.status.rejected",
         "requirement.status.historical",
         "requirement.status.conflicting",
+        "conflict.severity.high",
+        "conflict.severity.medium",
+        "conflict.severity.low",
+        "conflict.severity.unknown",
+        "conflict.status.open",
+        "conflict.status.resolved",
+        "conflict.status.ignored",
+        "conflict.status.unknown",
         "source.status.active",
         "source.status.partiallyOutdated",
         "source.status.outdated",
@@ -787,6 +795,10 @@ def test_i18n_contains_requirement_lifecycle_terms_for_each_language():
     assert '"requirement.status.superseded": "已被替代"' in content
     assert '"requirement.status.current": "Current"' in content
     assert '"requirement.status.superseded": "Superseded"' in content
+    assert '"conflict.severity.medium": "中风险"' in content
+    assert '"conflict.status.open": "待处理"' in content
+    assert '"conflict.severity.medium": "Medium"' in content
+    assert '"conflict.status.open": "Open"' in content
 
 
 def test_app_js_uses_snapshot_and_localized_lifecycle_labels():
@@ -796,6 +808,8 @@ def test_app_js_uses_snapshot_and_localized_lifecycle_labels():
     for symbol in (
         "function requirementLifecycleStatus",
         "function requirementStatusLabel",
+        "function conflictSeverityLabel",
+        "function conflictStatusLabel",
         "function renderRequirementSnapshot",
         "function submitRequirementDecision",
         "/api/projects/${projectId}/requirements/snapshot",
@@ -806,6 +820,13 @@ def test_app_js_uses_snapshot_and_localized_lifecycle_labels():
     assert "fact.validityStatus" in content
     assert "Object.values(snapshot.source_statuses || {})" in content
     assert "fieldValue(conflict.status)" not in content
+    assert "fieldValue(conflict.severity)" not in content
+    assert "const known = new Set([\"high\", \"medium\", \"low\"]);" in content
+    assert "const known = new Set([\"open\", \"resolved\", \"ignored\"]);" in content
+    assert "t(`conflict.severity.${normalized}`)" in content
+    assert "t(`conflict.status.${normalized}`)" in content
+    assert 'return t("action.ignoreThisConflict")' not in content
+    assert 'return t("action.resolveConflict")' not in content
     assert ".status-badge-current" in css
     assert ".status-badge-superseded" in css
     assert ".source-status-partially_outdated" in css

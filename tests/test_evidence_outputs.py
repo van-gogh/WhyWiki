@@ -110,6 +110,70 @@ def test_requirements_wiki_uses_current_requirement_snapshot(tmp_path, monkeypat
     assert "替代者：`fact_current`" in content
 
 
+def test_generated_wiki_localizes_fact_and_conflict_status_labels(tmp_path, monkeypatch):
+    conn, project = seed_requirement_snapshot_project(tmp_path, monkeypatch)
+    now = now_iso()
+    conn.execute(
+        """
+        INSERT INTO facts(
+            id, project_id, fact_type, statement, evidence_json, status, confidence,
+            created_at, validity_status, superseded_by_fact_id, review_note, updated_at
+        )
+        VALUES (?, ?, 'code', ?, ?, 'candidate', 0.82, ?, 'unknown', '', '', ?)
+        """,
+        (
+            "fact_code_candidate",
+            project["id"],
+            "代码入口是 `whywiki/app.py`。",
+            to_json([{"source_id": "src_current", "path": "whywiki/app.py"}]),
+            now,
+            now,
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO conflicts(
+            id, project_id, conflict_key, conflict_type, title, description,
+            evidence_json, severity, status, created_at
+        )
+        VALUES (?, ?, ?, 'requirement_conflict', ?, ?, ?, 'medium', 'open', ?)
+        """,
+        (
+            "conf_requirement_medium",
+            project["id"],
+            "requirement_conflict:demo",
+            "登录方式需要确认",
+            "旧文档和新文档对登录方式描述不一致。",
+            to_json([{"path": "docs/login_requirements.md"}]),
+            now,
+        ),
+    )
+    conn.commit()
+
+    pages = build_wiki_pages(project["id"], conn)
+    fact_page = pages["architecture"]
+    conflict_page = pages["conflicts"]
+    requirement_page = pages["requirements"]
+    handover_page = pages["handover"]
+
+    assert "状态：待确认，有效性：待判断，置信度：0.82" in fact_page
+    assert "证据：`whywiki/app.py`" in fact_page
+    assert "类型：需求冲突" in conflict_page
+    assert "严重程度：中风险" in conflict_page
+    assert "状态：待处理" in conflict_page
+    assert "**登录方式需要确认**（中风险）" in requirement_page
+    assert "**登录方式需要确认**（中风险）" in handover_page
+    assert "高风险 / 中风险冲突" in handover_page
+
+    for content in (fact_page, conflict_page, requirement_page, handover_page):
+        assert "状态：candidate" not in content
+        assert "有效性：unknown" not in content
+        assert "严重程度：medium" not in content
+        assert "状态：open" not in content
+        assert "类型：requirement_conflict" not in content
+        assert "high/medium" not in content
+
+
 def test_ask_current_requirement_answer_explains_superseded_history(tmp_path, monkeypatch):
     conn, project = seed_requirement_snapshot_project(tmp_path, monkeypatch)
 
@@ -285,6 +349,9 @@ def test_ask_returns_detected_conflicts_for_conflict_question(tmp_path, monkeypa
     assert any(item["kind"] == "conflict" for item in result["evidence"])
     assert "当前检测到以下待审查冲突" in result["answer"]
     assert "多个材料都声称自己是最新版或最终版" in result["answer"]
+    assert "风险" in result["answer"]
+    assert "（medium）" not in result["answer"]
+    assert "（high）" not in result["answer"]
     assert "证据" in result["answer"]
 
 

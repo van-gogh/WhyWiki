@@ -1314,6 +1314,18 @@ function sourceMemoryStatusLabel(status = "active") {
   return t(`source.status.${normalized}`);
 }
 
+function conflictSeverityLabel(severity = "medium") {
+  const known = new Set(["high", "medium", "low"]);
+  const normalized = known.has(severity) ? severity : "unknown";
+  return t(`conflict.severity.${normalized}`);
+}
+
+function conflictStatusLabel(conflict = {}) {
+  const known = new Set(["open", "resolved", "ignored"]);
+  const normalized = known.has(conflict.status) ? conflict.status : "unknown";
+  return t(`conflict.status.${normalized}`);
+}
+
 function evidenceItems(row) {
   if (!row || !("evidence_json" in row)) return [];
   return parseJsonList(row.evidence_json).filter((item) => item && typeof item === "object");
@@ -2350,12 +2362,6 @@ function renderConflictDecisionControls(conflict, actions, requirements = []) {
   return controls;
 }
 
-function conflictStatusLabel(conflict) {
-  if (conflict.status === "ignored") return t("action.ignoreThisConflict");
-  if (conflict.status === "resolved") return t("action.resolveConflict");
-  return t("requirement.status.conflicting");
-}
-
 function renderConflictCard(conflict, requirements = []) {
   const card = createElement("article", `conflict-card conflict-card-${conflict.severity || "medium"}`);
   const projectId = requireProject();
@@ -2365,7 +2371,7 @@ function renderConflictCard(conflict, requirements = []) {
   const badges = createElement("div", "badge-row");
   badges.append(
     renderStatusBadge(t("badge.conflict"), "conflict"),
-    renderStatusBadge(fieldValue(conflict.severity), conflict.severity || "medium"),
+    renderStatusBadge(conflictSeverityLabel(conflict.severity), conflict.severity || "medium"),
     renderStatusBadge(conflictStatusLabel(conflict), conflict.status || "open")
   );
   header.append(title, badges);

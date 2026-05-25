@@ -34,6 +34,45 @@ DECISION_ACTION_LABELS = {
     "ignore_conflict": {"zh-CN": "忽略此冲突", "en-US": "Ignore this conflict"},
 }
 
+FACT_STATUS_LABELS = {
+    "candidate": {"zh-CN": "待确认", "en-US": "Candidate"},
+    "confirmed": {"zh-CN": "已确认", "en-US": "Confirmed"},
+    "needs_review": {"zh-CN": "待审查", "en-US": "Needs review"},
+    "rejected": {"zh-CN": "已拒绝", "en-US": "Rejected"},
+    "unknown": {"zh-CN": "待判断", "en-US": "Unknown"},
+}
+
+FACT_VALIDITY_LABELS = {
+    "current": {"zh-CN": "当前有效", "en-US": "Current"},
+    "unknown": {"zh-CN": "待判断", "en-US": "Unknown"},
+    "outdated": {"zh-CN": "已过期", "en-US": "Outdated"},
+    "conflicting": {"zh-CN": "存在冲突", "en-US": "Conflicting"},
+    "superseded": {"zh-CN": "已被替代", "en-US": "Superseded"},
+    "historical": {"zh-CN": "历史参考", "en-US": "Historical"},
+}
+
+CONFLICT_TYPE_LABELS = {
+    "fact_statement_conflict": {"zh-CN": "事实陈述冲突", "en-US": "Fact statement conflict"},
+    "document_conflict_marker": {"zh-CN": "文档标记冲突", "en-US": "Document conflict marker"},
+    "deployment_model_mismatch": {"zh-CN": "部署模型不一致", "en-US": "Deployment model mismatch"},
+    "requirement_conflict": {"zh-CN": "需求冲突", "en-US": "Requirement conflict"},
+    "unknown": {"zh-CN": "待分类冲突", "en-US": "Unclassified conflict"},
+}
+
+CONFLICT_SEVERITY_LABELS = {
+    "high": {"zh-CN": "高风险", "en-US": "High"},
+    "medium": {"zh-CN": "中风险", "en-US": "Medium"},
+    "low": {"zh-CN": "低风险", "en-US": "Low"},
+    "unknown": {"zh-CN": "待判断", "en-US": "Unknown"},
+}
+
+CONFLICT_STATUS_LABELS = {
+    "open": {"zh-CN": "待处理", "en-US": "Open"},
+    "resolved": {"zh-CN": "已解决", "en-US": "Resolved"},
+    "ignored": {"zh-CN": "已忽略", "en-US": "Ignored"},
+    "unknown": {"zh-CN": "待判断", "en-US": "Unknown"},
+}
+
 
 def normalize_language(language: str | None) -> Language:
     return "en-US" if language == "en-US" else "zh-CN"
@@ -61,3 +100,23 @@ def source_status_label(status: str, language: str | None = None) -> str:
 def decision_action_label(action: str, language: str | None = None) -> str:
     values = DECISION_ACTION_LABELS.get(action or "leave_for_later", DECISION_ACTION_LABELS["leave_for_later"])
     return values[normalize_language(language)]
+
+
+def fact_status_label(status: str, language: str | None = None) -> str:
+    return label(FACT_STATUS_LABELS, status or "unknown", language, "unknown")
+
+
+def fact_validity_label(validity: str, language: str | None = None) -> str:
+    return label(FACT_VALIDITY_LABELS, validity or "unknown", language, "unknown")
+
+
+def conflict_type_label(conflict_type: str, language: str | None = None) -> str:
+    return label(CONFLICT_TYPE_LABELS, conflict_type or "unknown", language, "unknown")
+
+
+def conflict_severity_label(severity: str, language: str | None = None) -> str:
+    return label(CONFLICT_SEVERITY_LABELS, severity or "unknown", language, "unknown")
+
+
+def conflict_status_label(status: str, language: str | None = None) -> str:
+    return label(CONFLICT_STATUS_LABELS, status or "unknown", language, "unknown")

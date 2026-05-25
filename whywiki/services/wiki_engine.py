@@ -9,6 +9,13 @@ from ..utils import from_json, new_id, now_iso
 from .conflict_detector import detect_conflicts
 from .fact_extractor import rebuild_facts
 from .handover import generate_handover
+from .lifecycle_labels import (
+    conflict_severity_label,
+    conflict_status_label,
+    conflict_type_label,
+    fact_status_label,
+    fact_validity_label,
+)
 from .requirement_lifecycle import build_requirement_snapshot
 
 PAGE_ORDER = [
@@ -118,7 +125,9 @@ def render_fact_page(title: str, facts) -> str:
         lines.append(f"  - 证据：`{pointer}`")
         status = fact["status"]
         validity = fact["validity_status"] if "validity_status" in fact.keys() else "unknown"
-        lines.append(f"  - 状态：{status}，有效性：{validity}，置信度：{fact['confidence']:.2f}")
+        lines.append(
+            f"  - 状态：{fact_status_label(status)}，有效性：{fact_validity_label(validity)}，置信度：{fact['confidence']:.2f}"
+        )
     return "\n".join(lines).strip() + "\n"
 
 
@@ -162,7 +171,7 @@ def render_requirement_snapshot_page(project_id: str, conn: sqlite3.Connection) 
     if snapshot["open_conflicts"]:
         lines += ["## 未解决冲突", ""]
         for conflict in snapshot["open_conflicts"]:
-            lines.append(f"- **{conflict['title']}**（{conflict['severity']}）")
+            lines.append(f"- **{conflict['title']}**（{conflict_severity_label(conflict['severity'])}）")
             lines.append(f"  - {conflict['description']}")
             evidence = conflict.get("evidence", [])
             paths = [item.get("path") for item in evidence if isinstance(item, dict) and item.get("path")]
@@ -182,9 +191,9 @@ def render_conflicts(conflicts) -> str:
         evidence = from_json(conf["evidence_json"], [])
         lines.append(f"## {conf['title']}")
         lines.append("")
-        lines.append(f"- 类型：{conf['conflict_type']}")
-        lines.append(f"- 严重程度：{conf['severity']}")
-        lines.append(f"- 状态：{conf['status']}")
+        lines.append(f"- 类型：{conflict_type_label(conf['conflict_type'])}")
+        lines.append(f"- 严重程度：{conflict_severity_label(conf['severity'])}")
+        lines.append(f"- 状态：{conflict_status_label(conf['status'])}")
         lines.append(f"- 描述：{conf['description']}")
         if evidence:
             lines.append("- 证据：")

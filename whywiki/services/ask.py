@@ -5,6 +5,7 @@ import sqlite3
 
 from ..db import connect, init_db
 from ..utils import from_json
+from .lifecycle_labels import conflict_severity_label, conflict_status_label
 from .requirement_lifecycle import build_requirement_snapshot
 
 MIN_TOKEN_OVERLAP = 2
@@ -93,7 +94,7 @@ def answer_conflict_question(project_id: str, question: str, conn: sqlite3.Conne
     if not rows:
         return {
             "question": question,
-            "answer": "当前没有检测到 open 的待审查冲突。",
+            "answer": f"当前没有检测到{conflict_status_label('open')}的待审查冲突。",
             "evidence": [],
         }
 
@@ -103,7 +104,7 @@ def answer_conflict_question(project_id: str, question: str, conn: sqlite3.Conne
         paths = conflict_evidence_paths(row["evidence_json"])
         evidence_text = "、".join(f"`{path}`" for path in paths) if paths else "`unknown`"
         bullets.append(
-            f"- **{row['title']}**（{row['severity']}）\n"
+            f"- **{row['title']}**（{conflict_severity_label(row['severity'])}）\n"
             f"  - {row['description']}\n"
             f"  - 证据：{evidence_text}"
         )

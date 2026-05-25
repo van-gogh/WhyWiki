@@ -5,6 +5,7 @@ from collections import defaultdict
 
 from ..db import connect, init_db
 from ..utils import from_json
+from .lifecycle_labels import conflict_severity_label
 from .requirement_lifecycle import build_requirement_snapshot
 
 
@@ -87,7 +88,7 @@ def generate_handover(project_id: str, conn: sqlite3.Connection | None = None) -
     if not conflicts:
         lines.append("- 暂未发现冲突。")
     for conf in conflicts:
-        lines.append(f"- **{conf['title']}**（{conf['severity']}）")
+        lines.append(f"- **{conf['title']}**（{conflict_severity_label(conf['severity'])}）")
         lines.append(f"  - {conf['description']}")
     lines.append("")
 
@@ -95,7 +96,7 @@ def generate_handover(project_id: str, conn: sqlite3.Connection | None = None) -
     lines += [
         "1. 先读本交接包和 `overview.md`。",
         "2. 再读推荐阅读顺序中的前 3-5 个材料。",
-        "3. 优先处理 `conflicts.md` 中的 high/medium 冲突。",
+        "3. 优先处理 `conflicts.md` 中的高风险 / 中风险冲突。",
         "4. 对低置信度或缺少证据的事实进行人工确认。",
     ]
 
