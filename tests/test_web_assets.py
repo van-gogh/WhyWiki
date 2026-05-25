@@ -634,6 +634,25 @@ def test_app_js_exposes_project_guidance_and_evidence_components():
         assert endpoint in content
 
 
+def test_app_js_defines_requirement_semantic_helpers():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+
+    for symbol in (
+        "function requirementRows",
+        "function supportingFactRows",
+        "function requirementStatusKind",
+        "function requirementStatusLabel",
+        "function requirementSourceCount",
+        "function sortRequirementRows",
+        "function visibleRequirementRows",
+    ):
+        assert symbol in content
+
+    assert 'fact.fact_type === "requirement"' in content
+    assert 'row.validity_status === "conflicting"' in content
+    assert 'row.status === "needs_review"' in content
+
+
 def test_styles_define_whywiki_visual_language_and_states():
     content = (STATIC / "styles.css").read_text(encoding="utf-8")
 

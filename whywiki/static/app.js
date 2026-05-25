@@ -1019,6 +1019,61 @@ function reviewFactRows(facts) {
   return facts.filter((fact) => fact.status === "needs_review" || fact.validity_status === "conflicting");
 }
 
+function requirementRows(facts = []) {
+  return facts.filter((fact) => fact.fact_type === "requirement");
+}
+
+function supportingFactRows(facts = []) {
+  return facts.filter((fact) => fact.fact_type !== "requirement");
+}
+
+function requirementStatusKind(row) {
+  if (row.validity_status === "conflicting") return "conflict";
+  if (row.status === "needs_review" || row.status === "candidate") return "needs-review";
+  if (row.status === "confirmed" || row.validity_status === "current") return "confirmed";
+  if (!evidenceItems(row).length) return "low-confidence";
+  return "source-backed";
+}
+
+function requirementStatusLabel(row) {
+  const kind = requirementStatusKind(row);
+  if (kind === "conflict") return t("badge.conflict");
+  if (kind === "needs-review") return t("badge.needsReview");
+  if (kind === "confirmed") return t("badge.confirmed");
+  if (kind === "low-confidence") return t("badge.lowConfidence");
+  return t("badge.sourceBacked");
+}
+
+function requirementSourceCount(row) {
+  const paths = new Set(evidenceItems(row).map((item) => item.path || item.source_path).filter(Boolean));
+  return paths.size;
+}
+
+function sortRequirementRows(rows = []) {
+  return [...rows].sort((a, b) => {
+    const sourceA = evidenceItems(a)[0]?.path || "";
+    const sourceB = evidenceItems(b)[0]?.path || "";
+    const sourceCompare = String(sourceA).localeCompare(String(sourceB));
+    if (sourceCompare) return sourceCompare;
+    return String(a.statement || "").localeCompare(String(b.statement || ""));
+  });
+}
+
+function visibleRequirementRows(rows = [], filters = new Set(["all"])) {
+  if (!filters || filters.size === 0 || filters.has("all")) return sortRequirementRows(rows);
+  return sortRequirementRows(rows).filter((row) => {
+    const kind = requirementStatusKind(row);
+    const statusMatch = (
+      (filters.has("conflict") && kind === "conflict") ||
+      (filters.has("needs-review") && kind === "needs-review") ||
+      (filters.has("confirmed") && kind === "confirmed")
+    );
+    const sourceMatch = filters.has("source-backed") && requirementSourceCount(row) > 0;
+    const recentMatch = filters.has("recent") && Boolean(row.updated_at || row.created_at);
+    return statusMatch || sourceMatch || recentMatch;
+  });
+}
+
 function evidenceItems(row) {
   if (!row || !("evidence_json" in row)) return [];
   return parseJsonList(row.evidence_json).filter((item) => item && typeof item === "object");
