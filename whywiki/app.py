@@ -29,7 +29,7 @@ from .services.evidence import conflict_evidence, fact_evidence
 from .services.ingest import ingest_path
 from .services.jobs import create_job, get_job, start_background_job
 from .services.wiki_engine import build_project
-from .services.workspace import create_project, get_project, list_projects
+from .services.workspace import create_project, delete_project, get_project, list_projects
 
 app = FastAPI(title="WhyWiki", version="0.1.0")
 static_dir = Path(__file__).parent / "static"
@@ -68,6 +68,11 @@ class ConnectWorkspaceRequest(BaseModel):
 class GitHubDevicePollRequest(BaseModel):
     device_code: str
     current_interval: float = 5
+    client_id: str | None = None
+
+
+class GitHubDeviceStartRequest(BaseModel):
+    client_id: str | None = None
 
 
 class GiteaStartRequest(BaseModel):
@@ -85,14 +90,20 @@ def require_token_store():
     except TokenStoreUnavailable as exc:
         raise HTTPException(
             status_code=503,
-            detail=f"Token storage is unavailable: {exc}. Install and configure a keyring backend.",
+            detail=f"Token storage is unavailable: {exc}",
         ) from exc
 
 
-def github_client_id() -> str:
-    value = os.getenv("WHYWIKI_GITHUB_CLIENT_ID", "").strip()
+def github_client_id(client_id: str | None = None) -> str:
+    value = (client_id or "").strip()
     if not value:
-        raise HTTPException(status_code=400, detail="Missing WHYWIKI_GITHUB_CLIENT_ID for GitHub login.")
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "GitHub Client ID is required for GitHub login. "
+                "Enter it in WhyWiki before opening GitHub authorization."
+            ),
+        )
     return value
 
 
@@ -113,8 +124,7 @@ def provider_registry():
             raise HTTPException(
                 status_code=503,
                 detail=(
-                    f"Token storage is unavailable for connected provider accounts: {exc}. "
-                    "Install and configure a keyring backend."
+                    f"Token storage is unavailable for connected provider accounts: {exc}"
                 ),
             ) from exc
         return static_provider_registry_from_env()
@@ -174,7 +184,11 @@ def startup() -> None:
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
-    return (static_dir / "index.html").read_text(encoding="utf-8")
+    html = (static_dir / "index.html").read_text(encoding="utf-8")
+    for asset_name in ("styles.css", "i18n.js", "app.js"):
+        version = (static_dir / asset_name).stat().st_mtime_ns
+        html = html.replace(f'/static/{asset_name}"', f'/static/{asset_name}?v={version}"')
+    return html
 
 
 @app.post("/api/projects")
@@ -219,15 +233,15 @@ def api_delete_auth_account(identity_key: str) -> dict:
 
 
 @app.post("/api/auth/github/device/start")
-def api_github_device_start() -> dict:
-    result = GitHubDeviceFlowClient(github_client_id()).start()
+def api_github_device_start(req: GitHubDeviceStartRequest | None = None) -> dict:
+    result = GitHubDeviceFlowClient(github_client_id(req.client_id if req else None)).start()
     result.setdefault("interval", result.get("poll_after_seconds", 5))
     return result
 
 
 @app.post("/api/auth/github/device/poll")
 def api_github_device_poll(req: GitHubDevicePollRequest) -> dict:
-    result = GitHubDeviceFlowClient(github_client_id()).poll(
+    result = GitHubDeviceFlowClient(github_client_id(req.client_id)).poll(
         req.device_code,
         current_interval=req.current_interval,
     )
@@ -338,6 +352,16 @@ def api_get_project(project_id: str) -> dict:
         return get_project(project_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.delete("/api/projects/{project_id}")
+def api_delete_project(project_id: str) -> dict:
+    require_review_access_if_configured(project_id)
+    try:
+        delete_project(project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"deleted": True, "project_id": project_id}
 
 
 @app.post("/api/projects/{project_id}/ingest")

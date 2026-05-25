@@ -43,3 +43,19 @@ def get_project(project_id: str, conn: sqlite3.Connection | None = None) -> dict
     if not row:
         raise ValueError(f"Project not found: {project_id}")
     return dict(row)
+
+
+def delete_project(project_id: str, conn: sqlite3.Connection | None = None) -> bool:
+    close = conn is None
+    conn = conn or connect()
+    init_db(conn)
+    row = conn.execute("SELECT id FROM projects WHERE id = ?", (project_id,)).fetchone()
+    if not row:
+        if close:
+            conn.close()
+        raise ValueError(f"Project not found: {project_id}")
+    conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+    conn.commit()
+    if close:
+        conn.close()
+    return True

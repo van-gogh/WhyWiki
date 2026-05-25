@@ -4,9 +4,20 @@ import time
 from fastapi.testclient import TestClient
 
 from whywiki.app import app
+from whywiki.db import connect
 from whywiki.services.ingest import ingest_path
 from whywiki.services.wiki_engine import build_project
 from whywiki.services.workspace import create_project
+
+
+def test_index_versions_static_scripts_for_local_development():
+    client = TestClient(app)
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert '/static/i18n.js?v=' in response.text
+    assert '/static/app.js?v=' in response.text
 
 
 def wait_for_job(client: TestClient, job_id: str, timeout: float = 3.0) -> dict:
@@ -125,3 +136,23 @@ def test_ingest_and_build_jobs_expose_progress_until_success(tmp_path, monkeypat
     assert build_done["status"] == "succeeded"
     assert build_done["progress"] == 100
     assert build_done["result"]["facts_created"] > 0
+
+
+def test_delete_project_removes_project_and_related_records(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
+    client = TestClient(app)
+    project = create_project("Disposable Project")
+    root = Path(__file__).resolve().parent / "fixtures" / "messy-project"
+    ingest_path(project["id"], root)
+    build_project(project["id"])
+
+    response = client.delete(f"/api/projects/{project['id']}")
+
+    assert response.status_code == 200
+    assert response.json() == {"deleted": True, "project_id": project["id"]}
+    assert project["id"] not in {item["id"] for item in client.get("/api/projects").json()}
+    assert client.get(f"/api/projects/{project['id']}").status_code == 404
+    with connect() as conn:
+        for table in ("sources", "blocks", "facts", "conflicts", "wiki_pages", "operation_jobs"):
+            count = conn.execute(f"SELECT COUNT(*) AS count FROM {table} WHERE project_id = ?", (project["id"],)).fetchone()["count"]
+            assert count == 0

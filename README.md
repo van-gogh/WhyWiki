@@ -128,8 +128,9 @@ Access is inherited from the provider:
 
 WhyWiki can connect GitHub and Gitea accounts for local workspace access checks.
 
-- GitHub login uses OAuth device flow. Set `WHYWIKI_GITHUB_CLIENT_ID` before
-  starting WhyWiki.
+- GitHub login uses OAuth device flow. Create a GitHub OAuth App from the
+  WhyWiki sidebar, enable Device Flow in that app, then paste its Client ID
+  back into WhyWiki. The Client Secret is not used.
 - Gitea login uses OAuth2 Authorization Code with PKCE. Register a public OAuth
   application on the Gitea server and use
   `http://127.0.0.1:8765/api/auth/gitea/callback` as the redirect URL.

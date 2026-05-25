@@ -45,16 +45,53 @@ def _token_store(tmp_path):
     return FileTokenStore(tmp_path / "xdg" / "whywiki" / "tokens.json")
 
 
-def test_github_device_start_requires_client_id_env():
+def test_github_device_start_requires_client_id_configuration():
     response = _client().post("/api/auth/github/device/start")
 
     assert response.status_code == 400
-    assert "WHYWIKI_GITHUB_CLIENT_ID" in response.json()["detail"]
+    assert "GitHub Client ID" in response.json()["detail"]
+    assert "WhyWiki" in response.json()["detail"]
+    assert "WHYWIKI_GITHUB_CLIENT_ID" not in response.json()["detail"]
+
+
+def test_github_device_start_ignores_legacy_env_client_id(monkeypatch):
+    monkeypatch.setenv("WHYWIKI_GITHUB_CLIENT_ID", "legacy-env-client")
+
+    response = _client().post("/api/auth/github/device/start")
+
+    assert response.status_code == 400
+    assert "GitHub Client ID" in response.json()["detail"]
+
+
+def test_github_device_start_accepts_client_id_from_request_body(monkeypatch):
+    captured_forms = []
+
+    def fake_urlopen(request, timeout):
+        captured_forms.append(request.data.decode("utf-8"))
+        return _FakeHTTPResponse(
+            {
+                "device_code": "device-123",
+                "user_code": "ABCD-EFGH",
+                "verification_uri": "https://github.com/login/device",
+                "expires_in": 900,
+                "interval": 7,
+            }
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    response = _client().post(
+        "/api/auth/github/device/start",
+        json={"client_id": "github-client-from-ui"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["user_code"] == "ABCD-EFGH"
+    assert "client_id=github-client-from-ui" in captured_forms[0]
 
 
 def test_github_device_start_returns_device_codes_and_poll_interval(monkeypatch):
     captured_requests = []
-    monkeypatch.setenv("WHYWIKI_GITHUB_CLIENT_ID", "github-client")
 
     def fake_urlopen(request, timeout):
         captured_requests.append(request)
@@ -70,7 +107,10 @@ def test_github_device_start_returns_device_codes_and_poll_interval(monkeypatch)
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
-    response = _client().post("/api/auth/github/device/start")
+    response = _client().post(
+        "/api/auth/github/device/start",
+        json={"client_id": "github-client"},
+    )
 
     assert response.status_code == 200
     assert response.json() == {
@@ -90,7 +130,6 @@ def test_github_device_poll_authorized_saves_identity_and_token_without_returnin
     tmp_path,
     monkeypatch,
 ):
-    monkeypatch.setenv("WHYWIKI_GITHUB_CLIENT_ID", "github-client")
     identity = ProviderIdentity(provider="github", account="alice", provider_user_id="42")
 
     def fake_poll(self, device_code, current_interval=5):
@@ -111,7 +150,7 @@ def test_github_device_poll_authorized_saves_identity_and_token_without_returnin
 
     response = _client().post(
         "/api/auth/github/device/poll",
-        json={"device_code": "device-123", "current_interval": 7},
+        json={"device_code": "device-123", "current_interval": 7, "client_id": "github-client"},
     )
 
     assert response.status_code == 200
@@ -125,8 +164,40 @@ def test_github_device_poll_authorized_saves_identity_and_token_without_returnin
     assert _token_store(tmp_path).load(identity).access_token == "secret-token"
 
 
+def test_github_device_poll_accepts_client_id_from_request_body(monkeypatch):
+    constructed_client_ids = []
+
+    class FakeGitHubDeviceFlowClient:
+        def __init__(self, client_id):
+            constructed_client_ids.append(client_id)
+
+        def poll(self, device_code, current_interval=5):
+            assert device_code == "device-123"
+            assert current_interval == 7
+            return {
+                "status": "waiting_for_user",
+                "provider": "github",
+                "error": "authorization_pending",
+                "poll_after_seconds": current_interval,
+            }
+
+    monkeypatch.setattr(app_module, "GitHubDeviceFlowClient", FakeGitHubDeviceFlowClient)
+
+    response = _client().post(
+        "/api/auth/github/device/poll",
+        json={
+            "device_code": "device-123",
+            "current_interval": 7,
+            "client_id": "github-client-from-ui",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "waiting_for_user"
+    assert constructed_client_ids == ["github-client-from-ui"]
+
+
 def test_github_device_poll_authorized_returns_503_when_token_store_unavailable(monkeypatch):
-    monkeypatch.setenv("WHYWIKI_GITHUB_CLIENT_ID", "github-client")
     monkeypatch.setattr(sys, "platform", "darwin")
     identity = ProviderIdentity(provider="github", account="alice", provider_user_id="42")
 
@@ -147,11 +218,13 @@ def test_github_device_poll_authorized_returns_503_when_token_store_unavailable(
 
     response = _client().post(
         "/api/auth/github/device/poll",
-        json={"device_code": "device-123"},
+        json={"device_code": "device-123", "client_id": "github-client"},
     )
 
     assert response.status_code == 503
-    assert "token storage" in response.json()["detail"].lower()
+    detail = response.json()["detail"]
+    assert "token storage" in detail.lower()
+    assert detail.count("Install and configure a keyring backend") <= 1
     assert AccountStore(app_module.get_data_dir() / "auth" / "accounts.json").list_identities() == []
 
 
@@ -159,8 +232,6 @@ def test_github_device_poll_pending_passes_through_without_saving_account_or_tok
     tmp_path,
     monkeypatch,
 ):
-    monkeypatch.setenv("WHYWIKI_GITHUB_CLIENT_ID", "github-client")
-
     def fake_poll(self, device_code, current_interval=5):
         return {
             "status": "waiting_for_user",
@@ -173,7 +244,7 @@ def test_github_device_poll_pending_passes_through_without_saving_account_or_tok
 
     response = _client().post(
         "/api/auth/github/device/poll",
-        json={"device_code": "device-123", "current_interval": 8},
+        json={"device_code": "device-123", "current_interval": 8, "client_id": "github-client"},
     )
 
     assert response.status_code == 200
@@ -354,7 +425,9 @@ def test_delete_account_preserves_identity_when_token_store_is_unavailable(tmp_p
     response = _client().delete("/api/auth/accounts/github%3A42")
 
     assert response.status_code == 503
-    assert "token storage" in response.json()["detail"].lower()
+    detail = response.json()["detail"]
+    assert "token storage" in detail.lower()
+    assert detail.count("Install and configure a keyring backend") <= 1
     assert store.list_identities() == [identity]
 
 

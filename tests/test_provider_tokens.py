@@ -2,6 +2,7 @@ import json
 import os
 import stat
 import sys
+import importlib.util
 from types import SimpleNamespace
 
 import pytest
@@ -129,3 +130,16 @@ def test_default_token_store_raises_on_non_linux_when_keyring_unavailable(monkey
     monkeypatch.setattr(sys, "platform", "darwin")
     with pytest.raises(TokenStoreUnavailable):
         default_token_store()
+
+
+def test_default_token_store_reports_missing_keyring_package_on_non_linux(monkeypatch):
+    monkeypatch.setattr(KeyringTokenStore, "available", lambda self: False)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: None if name == "keyring" else object())
+
+    with pytest.raises(TokenStoreUnavailable) as exc_info:
+        default_token_store()
+
+    message = str(exc_info.value)
+    assert "keyring Python package is not installed" in message
+    assert "pip install -e ." in message

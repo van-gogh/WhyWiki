@@ -119,7 +119,7 @@ WhyWiki 使用 Git provider 做协作。
 
 WhyWiki 可以连接 GitHub 和 Gitea 账号，用于本地工作区访问检查。
 
-- GitHub 登录使用 OAuth device flow。启动 WhyWiki 前设置 `WHYWIKI_GITHUB_CLIENT_ID`。
+- GitHub 登录使用 OAuth device flow。从 WhyWiki 侧边栏创建 GitHub OAuth App，在应用设置里启用 Device Flow，然后把 Client ID 粘贴回 WhyWiki。这个流程不使用 Client Secret。
 - Gitea 登录使用带 PKCE 的 OAuth2 Authorization Code。请在 Gitea 服务器上注册一个 public OAuth 应用，并把 `http://127.0.0.1:8765/api/auth/gitea/callback` 作为 redirect URL。
 - 可用时，token 会存入操作系统凭据存储：macOS Keychain、Windows Credential Manager / DPAPI-backed storage，或 Linux Secret Service。
 - `accounts.json` 只保存账号元数据，绝不保存 token。

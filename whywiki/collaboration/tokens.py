@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import importlib.util
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -209,8 +210,13 @@ def default_token_store() -> TokenStore:
         return keyring_store
     if sys.platform == "linux":
         return FileTokenStore(xdg_token_path())
+    if importlib.util.find_spec("keyring") is None:
+        raise TokenStoreUnavailable(
+            "keyring Python package is not installed. "
+            "Run pip install -e . from the WhyWiki checkout, then restart whywiki serve."
+        )
     raise TokenStoreUnavailable(
-        "No secure token storage available. Install and configure a keyring backend."
+        "OS credential storage is unavailable. Unlock or configure your system credential store, then retry."
     )
 
 

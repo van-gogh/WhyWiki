@@ -45,9 +45,11 @@ body {
   padding: 24px 16px;
 }
 
-.brand {
-  font-size: 24px;
-  font-weight: 700;
+.sidebar-home {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   margin-bottom: 28px;
 }
 
@@ -90,6 +92,63 @@ body.has-current-project .project-pill {
   background: #ede9fe;
   color: var(--text);
   font-weight: 600;
+}
+
+.sidebar .brand-button,
+.sidebar .sidebar-back-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  padding: 0;
+}
+
+.sidebar .brand-button {
+  min-width: 0;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.brand-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar .sidebar-back-button {
+  display: none;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border-color: var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--muted);
+}
+
+body.has-current-project .sidebar-back-button {
+  display: inline-flex;
+}
+
+.sidebar .brand-button:hover {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text);
+}
+
+.sidebar .sidebar-back-button:hover {
+  border-color: #c4b5fd;
+  background: #f5f3ff;
+  color: var(--text);
+}
+
+.back-icon {
+  width: 16px;
+  height: 16px;
 }
 
 .sidebar nav {
@@ -219,7 +278,8 @@ body.has-current-project .project-pill {
   color: var(--muted);
 }
 
-.auth-message-loading {
+.auth-message-loading,
+.auth-message-info {
   border-color: #bfdbfe;
   background: var(--info-bg);
 }
@@ -249,6 +309,31 @@ body.has-current-project .project-pill {
   letter-spacing: 0;
 }
 
+.auth-code-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.auth-code-row .auth-code {
+  min-width: 0;
+}
+
+.auth-panel .auth-code-row .auth-copy-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
 .auth-form {
   display: grid;
   gap: 8px;
@@ -272,6 +357,59 @@ body.has-current-project .project-pill {
   color: var(--text);
   padding: 7px 8px;
   font: inherit;
+}
+
+.auth-form-hint {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.auth-guide {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  background: #eff6ff;
+  padding: 8px;
+}
+
+.auth-guide-values,
+.auth-guide-steps {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.auth-guide-value {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.auth-guide-value span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.auth-guide-value code {
+  display: block;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #ffffff;
+  color: var(--text);
+  padding: 5px 6px;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+
+.auth-guide-steps {
+  padding-left: 18px;
+  color: var(--muted);
+  line-height: 1.4;
 }
 
 .auth-account-list {
@@ -493,17 +631,36 @@ body.has-current-project .project-pill {
 
 .project-home-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
-.project-home-header p {
-  max-width: 680px;
+.project-home-title {
   margin: 0;
-  color: var(--muted);
-  line-height: 1.6;
+  font-size: 34px;
+  line-height: 1.05;
+  font-weight: 800;
+}
+
+.project-home-create-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  border-radius: 999px;
+  padding: 8px 12px;
+  white-space: nowrap;
+  font-size: 14px;
+  box-shadow: none;
+}
+
+.project-home-create-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
 }
 
 .project-list {
@@ -520,14 +677,33 @@ body.has-current-project .project-pill {
   border-radius: 8px;
   background: #fbfbfc;
   padding: 16px;
+}
+
+.project-card[role="button"] {
   cursor: pointer;
 }
 
-.project-card:hover,
-.project-card:focus {
+.project-card[role="button"]:hover,
+.project-card[role="button"]:focus-visible,
+.project-card:focus-within {
   border-color: #c4b5fd;
   outline: none;
-  box-shadow: 0 8px 24px rgba(31, 32, 36, 0.08);
+  background: #ffffff;
+  box-shadow: 0 10px 26px rgba(31, 32, 36, 0.1);
+  transform: translateY(-1px);
+}
+
+.project-card[role="button"]:focus-visible {
+  outline: 3px solid rgba(124, 58, 237, .22);
+  outline-offset: 2px;
+}
+
+.project-card-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
 }
 
 .project-card h2 {
@@ -543,14 +719,71 @@ body.has-current-project .project-pill {
   overflow-wrap: anywhere;
 }
 
-.project-open {
-  justify-self: start;
-  border: 1px solid var(--line);
-  border-radius: 8px;
+.project-card-menu-wrap {
+  position: relative;
+  justify-self: end;
+}
+
+.project-card .project-card-menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 999px;
+  padding: 0;
   background: #ffffff;
+  box-shadow: 0 1px 2px rgba(31, 32, 36, 0.06);
+}
+
+.project-card .project-card-menu-button:hover,
+.project-card-menu-wrap.is-open .project-card-menu-button {
+  border-color: #d8d8df;
+  background: #f6f6f8;
   color: var(--text);
-  padding: 8px 10px;
-  font-weight: 700;
+}
+
+.project-card .project-card-menu-icon {
+  width: 15px;
+  height: 15px;
+  display: block;
+  fill: currentColor;
+}
+
+.project-card-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 2px;
+  min-width: 88px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 10px 22px rgba(31, 32, 36, 0.12);
+  padding: 4px;
+}
+
+.project-card-menu[hidden] {
+  display: none;
+}
+
+.project-card-menu .action-destructive {
+  width: 100%;
+  min-height: 28px;
+  border-radius: 999px;
+  padding: 5px 10px;
+  justify-content: center;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.project-card-delete {
+  min-height: 34px;
 }
 
 .metric-grid {
@@ -1215,7 +1448,7 @@ button:disabled {
     padding: 16px;
   }
 
-  .brand {
+  .sidebar-home {
     margin-bottom: 12px;
   }
 
@@ -1280,7 +1513,7 @@ button:disabled {
   }
 
   .project-home-header {
-    display: grid;
+    gap: 10px;
   }
 
   .record-field {

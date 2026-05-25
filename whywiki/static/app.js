@@ -1,10 +1,12 @@
 const supportedLanguages = ["zh-CN", "en-US"];
+const githubClientIdStorageKey = "whywiki.githubClientId";
 let currentProjectId = storageGet("whywiki.currentProjectId");
 let currentProject = null;
 let activeView = "projects";
 let languageBounceTimer = null;
 let authFlowId = 0;
 let githubPollTimer = null;
+let githubCopyResetTimer = null;
 let collaborationState = {
   accounts: [],
   workspace: { configured: false, workspace: null },
@@ -86,6 +88,7 @@ function translate(lang, { rerender = false } = {}) {
     node.placeholder = dict[node.dataset.i18nPlaceholder] || node.dataset.i18nPlaceholder;
   });
   updateLanguageSwitch(normalizedLang);
+  renderHomeNavigationLabels();
   storageSet("whywiki.language", normalizedLang);
   if (collaborationState.loaded) {
     renderAccountStatus(collaborationState.accounts);
@@ -149,6 +152,18 @@ function renderAuthMessage(kind, title, body = "") {
   return message;
 }
 
+function isTokenStorageError(error) {
+  return Boolean(error?.message && error.message.toLowerCase().includes("token storage"));
+}
+
+function authErrorTitle(error, fallbackKey = "auth.failed") {
+  return isTokenStorageError(error) ? t("auth.tokenStorageUnavailable") : t(fallbackKey);
+}
+
+function authErrorBody(error, fallbackKey = "auth.failed") {
+  return isTokenStorageError(error) ? t("auth.tokenStorageUnavailableBody") : (error.message || t(fallbackKey));
+}
+
 function nextAuthSessionId() {
   authFlowId += 1;
   return authFlowId;
@@ -161,6 +176,13 @@ function clearGithubPollTimer() {
   }
 }
 
+function clearGithubCopyResetTimer() {
+  if (githubCopyResetTimer !== null) {
+    window.clearTimeout(githubCopyResetTimer);
+    githubCopyResetTimer = null;
+  }
+}
+
 function isCurrentGithubSession(sessionId, deviceCode) {
   if (sessionId !== authConnectionState.sessionId) return false;
   if (authConnectionState.mode !== "github_waiting") return false;
@@ -168,9 +190,44 @@ function isCurrentGithubSession(sessionId, deviceCode) {
   return true;
 }
 
+function savedGithubClientId() {
+  return storageGet(githubClientIdStorageKey) || "";
+}
+
+function showGithubConfiguration(message = null) {
+  clearGithubPollTimer();
+  authConnectionState = {
+    sessionId: nextAuthSessionId(),
+    mode: "github_form",
+    busy: false,
+    message: message || { kind: "info", title: t("auth.githubSetupTitle"), body: t("auth.githubClientIdHelp") },
+    github: { clientId: savedGithubClientId() },
+    gitea: null,
+  };
+  renderAuthConnectionPanel();
+}
+
 async function startGithubLogin() {
   if (authConnectionState.busy) return;
   if (authConnectionState.mode === "github_waiting") return;
+  const clientId = savedGithubClientId();
+  if (!clientId) {
+    showGithubConfiguration();
+    return;
+  }
+  startGithubDeviceLogin(clientId);
+}
+
+async function startGithubDeviceLogin(clientIdInput = "") {
+  const clientId = String(clientIdInput || "").trim();
+  if (!clientId) {
+    showGithubConfiguration({
+      kind: "info",
+      title: t("auth.githubSetupTitle"),
+      body: t("auth.githubClientIdRequired"),
+    });
+    return;
+  }
   clearGithubPollTimer();
   const sessionId = nextAuthSessionId();
   authConnectionState = {
@@ -178,14 +235,19 @@ async function startGithubLogin() {
     mode: "github_waiting",
     busy: true,
     message: { kind: "loading", title: t("auth.waiting"), body: t("auth.githubOpening") },
-    github: null,
+    github: { clientId },
     gitea: null,
   };
   renderAuthConnectionPanel();
 
   try {
-    const result = await api("/api/auth/github/device/start", { method: "POST", body: "{}" });
+    const result = await api("/api/auth/github/device/start", {
+      method: "POST",
+      body: JSON.stringify({ client_id: clientId }),
+    });
     if (sessionId !== authConnectionState.sessionId || authConnectionState.mode !== "github_waiting") return;
+    if (!result.device_code) throw new Error(result.error_description || result.error || t("auth.failed"));
+    storageSet(githubClientIdStorageKey, clientId);
     const deviceCode = result.device_code;
     authConnectionState = {
       sessionId,
@@ -193,6 +255,7 @@ async function startGithubLogin() {
       busy: false,
       message: null,
       github: {
+        clientId,
         deviceCode,
         userCode: result.user_code,
         verificationUri: result.verification_uri,
@@ -205,15 +268,25 @@ async function startGithubLogin() {
   } catch (error) {
     if (sessionId !== authConnectionState.sessionId) return;
     clearGithubPollTimer();
+    const needsClientId = error.message && /client id/i.test(error.message);
+    if (needsClientId) {
+      showGithubConfiguration({
+        kind: "info",
+        title: t("auth.githubSetupTitle"),
+        body: t("auth.githubClientIdRequired"),
+      });
+      return;
+    }
     authConnectionState = {
       ...authConnectionState,
-      mode: "github_failed",
+      mode: "github_form",
       busy: false,
       message: {
         kind: "error",
-        title: error.message && error.message.toLowerCase().includes("token storage") ? t("auth.tokenStorageUnavailable") : t("auth.setupNeeded"),
-        body: error.message || t("auth.failed"),
+        title: authErrorTitle(error, "auth.setupNeeded"),
+        body: authErrorBody(error, "auth.failed"),
       },
+      github: { clientId },
     };
     renderAuthConnectionPanel();
   }
@@ -224,12 +297,23 @@ async function pollGithubDevice(sessionId, deviceCode) {
   if (!github?.deviceCode || !isCurrentGithubSession(sessionId, deviceCode)) return;
 
   try {
+    const clientId = github.clientId || "";
+    if (!clientId) {
+      showGithubConfiguration({
+        kind: "info",
+        title: t("auth.githubSetupTitle"),
+        body: t("auth.githubClientIdRequired"),
+      });
+      return;
+    }
+    const pollBody = {
+      device_code: github.deviceCode,
+      current_interval: github.interval,
+      client_id: clientId,
+    };
     const result = await api("/api/auth/github/device/poll", {
       method: "POST",
-      body: JSON.stringify({
-        device_code: github.deviceCode,
-        current_interval: github.interval,
-      }),
+      body: JSON.stringify(pollBody),
     });
     if (!isCurrentGithubSession(sessionId, deviceCode)) return;
 
@@ -257,19 +341,127 @@ async function pollGithubDevice(sessionId, deviceCode) {
   } catch (error) {
     if (!isCurrentGithubSession(sessionId, deviceCode)) return;
     clearGithubPollTimer();
+    clearGithubCopyResetTimer();
     authConnectionState = {
       ...authConnectionState,
       mode: "github_failed",
       busy: false,
       message: {
         kind: "error",
-        title: error.message && error.message.toLowerCase().includes("token storage") ? t("auth.tokenStorageUnavailable") : t("auth.failed"),
-        body: error.message || t("auth.failed"),
+        title: authErrorTitle(error),
+        body: authErrorBody(error),
       },
       github: null,
     };
     renderAuthConnectionPanel();
   }
+}
+
+async function copyGithubUserCode(userCode) {
+  const code = String(userCode || "").trim();
+  if (!code || authConnectionState.busy) return;
+  clearGithubCopyResetTimer();
+  try {
+    await navigator.clipboard.writeText(code);
+    authConnectionState.github = { ...authConnectionState.github, copyState: "copied" };
+    renderAuthConnectionPanel();
+    githubCopyResetTimer = window.setTimeout(() => {
+      if (authConnectionState.github?.userCode === code) {
+        authConnectionState.github = { ...authConnectionState.github, copyState: null };
+        renderAuthConnectionPanel();
+      }
+      githubCopyResetTimer = null;
+    }, 1800);
+  } catch {
+    authConnectionState.message = {
+      kind: "error",
+      title: t("auth.failed"),
+      body: t("auth.copyCodeFailed"),
+    };
+    authConnectionState.github = { ...authConnectionState.github, copyState: "failed" };
+    renderAuthConnectionPanel();
+  }
+}
+
+function renderGithubUserCode(userCode) {
+  const row = createElement("div", "auth-code-row");
+  const code = createElement("code", "auth-code", userCode);
+  const copy = createActionButton(
+    authConnectionState.github?.copyState === "copied" ? t("auth.codeCopied") : t("auth.copyCode"),
+    "secondary",
+    () => copyGithubUserCode(userCode),
+  );
+  copy.classList.add("auth-copy-button");
+  copy.disabled = authConnectionState.busy || !userCode;
+  row.append(code, copy);
+  return row;
+}
+
+function renderGithubForm() {
+  const form = createElement("form", "auth-form");
+  const hint = createElement("p", "auth-form-hint", t("auth.githubClientIdHelp"));
+  const clientIdInput = document.createElement("input");
+  clientIdInput.name = "client_id";
+  clientIdInput.type = "text";
+  clientIdInput.autocomplete = "off";
+  clientIdInput.required = true;
+  clientIdInput.value = authConnectionState.github?.clientId || savedGithubClientId();
+  clientIdInput.placeholder = "Ov23li...";
+
+  appendLabeledControl(form, t("auth.clientId"), clientIdInput);
+  form.append(hint);
+  form.append(renderGithubClientIdGuide());
+  const submit = createActionButton(t("auth.openGithubConfigured"), "primary");
+  submit.type = "submit";
+  submit.disabled = authConnectionState.busy;
+  form.append(submit);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const formData = new FormData(form);
+    const clientId = String(formData.get("client_id") || "").trim();
+    if (!clientId) {
+      showGithubConfiguration({
+        kind: "error",
+        title: t("auth.setupNeeded"),
+        body: t("auth.githubClientIdRequired"),
+      });
+      return;
+    }
+    startGithubDeviceLogin(clientId);
+  });
+  return form;
+}
+
+function renderGithubClientIdGuide() {
+  const guide = createElement("div", "auth-guide");
+  guide.append(
+    createElement("strong", "", t("auth.githubGuideTitle")),
+    createElement("p", "auth-form-hint", t("auth.githubGuideBody")),
+    createExternalLink("https://github.com/settings/applications/new", t("auth.githubGuideOpen"), "secondary"),
+  );
+
+  const values = createElement("div", "auth-guide-values");
+  appendGuideValue(values, t("auth.githubGuideAppName"), "WhyWiki Local");
+  appendGuideValue(values, t("auth.githubGuideHomepage"), "http://127.0.0.1:8765/");
+  appendGuideValue(values, t("auth.githubGuideCallback"), "http://127.0.0.1:8765/");
+
+  const steps = createElement("ol", "auth-guide-steps");
+  [
+    t("auth.githubGuideStepCreate"),
+    t("auth.githubGuideStepDeviceFlow"),
+    t("auth.githubGuideStepCopy"),
+  ].forEach((stepText) => {
+    steps.append(createElement("li", "", stepText));
+  });
+
+  guide.append(values, steps, createElement("p", "auth-form-hint", t("auth.githubGuideNoSecret")));
+  return guide;
+}
+
+function appendGuideValue(parent, labelText, valueText) {
+  const row = createElement("div", "auth-guide-value");
+  row.append(createElement("span", "", labelText), createElement("code", "", valueText));
+  parent.append(row);
 }
 
 function renderGiteaForm() {
@@ -343,8 +535,8 @@ async function startGiteaLogin(formData) {
       busy: false,
       message: {
         kind: "error",
-        title: error.message && error.message.toLowerCase().includes("token storage") ? t("auth.tokenStorageUnavailable") : t("auth.failed"),
-        body: error.message || t("auth.failed"),
+        title: authErrorTitle(error),
+        body: authErrorBody(error),
       },
     };
     renderAuthConnectionPanel();
@@ -372,8 +564,8 @@ async function disconnectAccount(identityKey) {
       busy: false,
       message: {
         kind: "error",
-        title: error.message && error.message.toLowerCase().includes("token storage") ? t("auth.tokenStorageUnavailable") : t("auth.failed"),
-        body: error.message || t("auth.failed"),
+        title: authErrorTitle(error),
+        body: authErrorBody(error),
       },
     };
     renderAuthConnectionPanel();
@@ -403,17 +595,23 @@ function renderAuthConnectionPanel() {
     children.push(renderAuthMessage(authConnectionState.message.kind, authConnectionState.message.title, authConnectionState.message.body));
   }
 
-  if (authConnectionState.github) {
+  if (authConnectionState.github?.deviceCode) {
     const githubBox = createElement("div", "auth-flow auth-flow-github");
     githubBox.append(createElement("strong", "", t("auth.githubTitle")));
     if (authConnectionState.github.userCode) {
-      githubBox.append(createElement("code", "auth-code", authConnectionState.github.userCode));
+      githubBox.append(renderGithubUserCode(authConnectionState.github.userCode));
     }
     if (authConnectionState.github.verificationUri) {
       const open = createExternalLink(authConnectionState.github.verificationUri, t("auth.openGithub"), "secondary");
       githubBox.append(open);
     }
     children.push(githubBox);
+  }
+
+  if (authConnectionState.mode === "github_form") {
+    const githubFormBox = createElement("div", "auth-flow auth-flow-github");
+    githubFormBox.append(createElement("strong", "", t("auth.githubSetupTitle")), renderGithubForm());
+    children.push(githubFormBox);
   }
 
   if (authConnectionState.mode === "gitea_form") {
@@ -577,6 +775,25 @@ function updateWorkspaceChrome(showWorkspace = Boolean(currentProjectId)) {
   }
 }
 
+function returnToProjectsHome() {
+  setCurrentProject(null);
+  updateWorkspaceChrome(false);
+  loadView("projects");
+}
+
+function renderHomeNavigationLabels() {
+  const homeBrandButton = document.querySelector("#homeBrandButton");
+  if (homeBrandButton) {
+    homeBrandButton.setAttribute("aria-label", t("nav.home"));
+    homeBrandButton.title = t("nav.home");
+  }
+  const backToProjectsButton = document.querySelector("#backToProjectsButton");
+  if (backToProjectsButton) {
+    backToProjectsButton.setAttribute("aria-label", t("nav.backToProjects"));
+    backToProjectsButton.title = t("nav.backToProjects");
+  }
+}
+
 async function ensureCurrentProject() {
   const projectId = requireProject();
   if (!projectId) return null;
@@ -590,6 +807,86 @@ function selectProject(project) {
   setCurrentProject(project);
   updateWorkspaceChrome(true);
   loadView("status");
+}
+
+async function deleteProject(project) {
+  const projectId = project?.id;
+  if (!projectId) return;
+  const projectName = project.name || projectId;
+  if (!window.confirm(t("projects.deleteConfirm").replace("{name}", projectName))) return;
+  try {
+    await api(`/api/projects/${project.id}`, { method: "DELETE" });
+    if (currentProjectId === projectId) {
+      setCurrentProject(null);
+      updateWorkspaceChrome(false);
+    }
+    await loadView("projects");
+    await loadCollaborationStatus();
+  } catch (error) {
+    const appNode = appContainer();
+    if (appNode) {
+      appNode.prepend(renderOperationFeedback("error", t("projects.deleteFailed"), `${error.message} ${t("operation.error.recovery")}`));
+    }
+  }
+}
+
+function closeProjectCardMenus() {
+  document.querySelectorAll(".project-card-menu-wrap.is-open").forEach((wrap) => {
+    wrap.classList.remove("is-open");
+    const button = wrap.querySelector(".project-card-menu-button");
+    const menu = wrap.querySelector(".project-card-menu");
+    if (button) button.setAttribute("aria-expanded", "false");
+    if (menu) menu.hidden = true;
+  });
+}
+
+function toggleProjectCardMenu(wrap) {
+  const willOpen = !wrap.classList.contains("is-open");
+  closeProjectCardMenus();
+  if (!willOpen) return;
+  wrap.classList.add("is-open");
+  const button = wrap.querySelector(".project-card-menu-button");
+  const menu = wrap.querySelector(".project-card-menu");
+  if (button) button.setAttribute("aria-expanded", "true");
+  if (menu) menu.hidden = false;
+}
+
+function createVerticalEllipsisIcon() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  svg.classList.add("project-card-menu-icon");
+  [4, 8, 12].forEach((cy) => {
+    const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    circle.setAttribute("cx", "8");
+    circle.setAttribute("cy", String(cy));
+    circle.setAttribute("r", "1.35");
+    svg.append(circle);
+  });
+  return svg;
+}
+
+function createProjectIcon() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.classList.add("project-home-create-icon");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("focusable", "false");
+  const horizontal = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  horizontal.setAttribute("d", "M4 8h8");
+  horizontal.setAttribute("fill", "none");
+  horizontal.setAttribute("stroke", "currentColor");
+  horizontal.setAttribute("stroke-width", "1.8");
+  horizontal.setAttribute("stroke-linecap", "round");
+  const vertical = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  vertical.setAttribute("d", "M8 4v8");
+  vertical.setAttribute("fill", "none");
+  vertical.setAttribute("stroke", "currentColor");
+  vertical.setAttribute("stroke-width", "1.8");
+  vertical.setAttribute("stroke-linecap", "round");
+  svg.append(horizontal, vertical);
+  return svg;
 }
 
 function appendField(list, label, value) {
@@ -1044,29 +1341,48 @@ function createProjectCard(project) {
   card.className = "project-card";
   card.tabIndex = 0;
   card.setAttribute("role", "button");
+  card.setAttribute("aria-label", t("projects.openCard").replace("{name}", project.name));
+  card.addEventListener("click", () => selectProject(project));
+  card.addEventListener("keydown", (event) => {
+    if (event.target !== card) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      selectProject(project);
+    }
+  });
+  const header = createElement("div", "project-card-header");
   const title = document.createElement("h2");
   title.textContent = project.name;
+  const menuWrap = createElement("div", "project-card-menu-wrap");
+  menuWrap.addEventListener("click", (event) => event.stopPropagation());
+  const menuButton = createActionButton("", "tertiary", (event) => {
+    event.stopPropagation();
+    toggleProjectCardMenu(menuWrap);
+  });
+  menuButton.classList.add("project-card-menu-button");
+  menuButton.setAttribute("aria-label", t("projects.moreActions"));
+  menuButton.setAttribute("aria-haspopup", "menu");
+  menuButton.setAttribute("aria-expanded", "false");
+  menuButton.append(createVerticalEllipsisIcon());
+  const menu = createElement("div", "project-card-menu");
+  menu.hidden = true;
+  menu.setAttribute("role", "menu");
+  const remove = createActionButton(t("projects.delete"), "destructive", (event) => {
+    event.stopPropagation();
+    closeProjectCardMenus();
+    deleteProject(project);
+  });
+  remove.classList.add("project-card-delete", "action-destructive");
+  remove.setAttribute("role", "menuitem");
+  menu.append(remove);
+  menuWrap.append(menuButton, menu);
+  header.append(title, menuWrap);
   const description = document.createElement("p");
   description.textContent = project.description || t("projects.noDescription");
   const meta = document.createElement("span");
   meta.className = "muted";
   meta.textContent = project.created_at || "";
-  const open = document.createElement("span");
-  open.className = "project-open";
-  open.textContent = t("projects.open");
-
-  function openProject() {
-    selectProject(project);
-  }
-
-  card.addEventListener("click", openProject);
-  card.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      openProject();
-    }
-  });
-  card.append(title, description, meta, open);
+  card.append(header, description, meta);
   return card;
 }
 
@@ -1076,17 +1392,18 @@ async function renderProjectsHome() {
   const projects = await api("/api/projects");
   const panel = createPanel(t("projects.title"));
   panel.classList.add("projects-home");
+  const title = panel.querySelector("h2");
   const header = document.createElement("div");
   header.className = "project-home-header";
-  const subtitle = document.createElement("p");
-  subtitle.textContent = t("projects.subtitle");
+  if (title) title.classList.add("project-home-title");
   const createButton = document.createElement("button");
   createButton.type = "button";
-  createButton.className = "action-primary";
+  createButton.className = "action-secondary project-home-create-button";
   createButton.textContent = t("action.createProject");
+  createButton.prepend(createProjectIcon());
   createButton.addEventListener("click", showCreateProjectForm);
-  header.append(subtitle, createButton);
-  panel.append(header);
+  header.append(title, createButton);
+  panel.prepend(header);
 
   if (!projects.length) {
     panel.append(renderEmptyState({
@@ -1889,6 +2206,24 @@ document.querySelectorAll("[data-action]").forEach((button) => {
 
 document.querySelectorAll("[data-view]").forEach((button) => {
   button.addEventListener("click", () => loadView(button.dataset.view));
+});
+
+const homeBrandButton = document.querySelector("#homeBrandButton");
+if (homeBrandButton) {
+  homeBrandButton.addEventListener("click", returnToProjectsHome);
+}
+
+const backToProjectsButton = document.querySelector("#backToProjectsButton");
+if (backToProjectsButton) {
+  backToProjectsButton.addEventListener("click", returnToProjectsHome);
+}
+
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".project-card-menu-wrap")) closeProjectCardMenus();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeProjectCardMenus();
 });
 
 const githubLoginButton = document.querySelector("#loginGithubButton");

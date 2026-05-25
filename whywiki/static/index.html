@@ -9,7 +9,16 @@
 </head>
 <body>
   <aside class="sidebar">
-    <div class="brand">WhyWiki</div>
+    <div class="sidebar-home">
+      <button id="backToProjectsButton" class="sidebar-back-button" type="button" aria-label="Back to projects" title="Back to projects">
+        <svg class="back-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+          <path d="M9.8 3.2 5 8l4.8 4.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+      <button id="homeBrandButton" class="brand-button" type="button" aria-label="WhyWiki home" title="WhyWiki home">
+        <span>WhyWiki</span>
+      </button>
+    </div>
     <nav data-workspace-nav>
       <button data-view="status" data-i18n="nav.status">Demand status</button>
       <button data-view="sources" data-i18n="nav.sources">Original files</button>
@@ -40,7 +49,6 @@
       <input id="search" placeholder="Search current project" data-i18n-placeholder="search.placeholder" />
       <div class="topbar-tools">
         <span id="current-project-name" class="project-pill"></span>
-        <button class="tool-button" data-view="projects" data-i18n="nav.projects">Projects</button>
         <button class="tool-button project-tool" data-view="wiki" data-i18n="nav.wikiIndex">Wiki index</button>
         <div class="language-switch" data-active-lang="en-US" aria-label="Language">
           <button data-lang="zh-CN">中文</button>

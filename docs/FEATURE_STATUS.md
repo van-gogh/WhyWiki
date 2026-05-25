@@ -64,6 +64,7 @@ WhyWiki 首板的核心闭环是：
 | Ask | 生产级 RAG / vector search | 暂缓 | 不属于首板目标。 |
 | Web UI | 本地 dashboard shell | 已完成 | 静态页面由 FastAPI 提供，文件在 `whywiki/static/index.html`、`styles.css`、`app.js`、`i18n.js`。 |
 | Web UI | 项目首页与项目内导航 | 已完成 | 默认进入项目列表首页；左侧需求现状、原始文件、需求冲突点、需求问答等工作区导航只在打开具体项目后显示。见 `whywiki/static/index.html`、`whywiki/static/app.js` 和 `tests/test_web_assets.py`。 |
+| Web UI | 项目删除入口 | 已完成 | 项目卡片右上角三点菜单提供“删除”危险操作，删除前二次确认；删除当前项目会清空当前项目状态并刷新项目列表。 |
 | Web UI | 需求现状视图 | 已完成 | 展示 source/fact/conflict/wiki 指标和当前待审查摘要，并提供项目内摄入和生成入口。 |
 | Web UI | 原始文件视图 | 已完成 | 能列出来源，并通过 API 查看 source/block 内容。 |
 | Web UI | 需求冲突点视图 | 部分完成 | 能展示 conflicts 和 review facts；还缺 resolve/ignore 操作。 |
@@ -74,7 +75,7 @@ WhyWiki 首板的核心闭环是：
 | Git provider login | 真实 Provider 登录 | 已完成 | GitHub device flow 和 Gitea PKCE 可在本地连接 provider 账号；token 不进入 `accounts.json`，默认走系统凭据存储，开发环境可显式启用文件 fallback。 |
 | Web UI | 证据原文查看 | 已完成 | `GET /api/projects/{project_id}/facts/{fact_id}/evidence` 和 `/conflicts/{conflict_id}/evidence` 会解析 evidence pointer，返回原始 block 片段、来源、路径和位置；Web 证据抽屉可加载原文。 |
 | Web UI | 扫描/生成进度 | 已完成 | Web 扫描和生成 Wiki 走 `ingest-jobs`、`build-jobs` 与 `/api/jobs/{job_id}` 轮询，状态持久化在 `operation_jobs`。 |
-| API | Project API | 已完成 | create/list/get project endpoints 已存在。 |
+| API | Project API | 已完成 | create/list/get/delete project endpoints 已存在；删除项目会级联清理来源、blocks、facts、conflicts、wiki pages 和 operation jobs。 |
 | API | Source/block/fact API | 已完成 | endpoints 已暴露 sources、source blocks、facts。 |
 | API | Wiki/conflict/handover/ask API | 已完成 | endpoints 已暴露 wiki pages、conflicts、conflict status update、handover、ask。 |
 | 测试 | 混乱项目测试夹具 | 已完成 | `tests/fixtures/messy-project` 仅作为测试/开发夹具使用，不作为产品内置 Demo 入口或 packaged asset。 |

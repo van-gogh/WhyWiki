@@ -149,6 +149,19 @@ def test_sidebar_exposes_collaboration_status_targets():
     assert 'id="linkedRepoStatus"' in content
 
 
+def test_static_shell_exposes_clean_left_home_navigation():
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+
+    assert 'class="sidebar-home"' in html
+    assert 'id="backToProjectsButton"' in html
+    assert 'class="sidebar-back-button"' in html
+    assert 'class="back-icon"' in html
+    assert 'id="homeBrandButton"' in html
+    assert 'class="brand-button"' in html
+    assert 'class="brand-icon"' not in html
+    assert '<button class="tool-button" data-view="projects"' not in html
+
+
 def test_login_provider_buttons_are_real_actions():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
 
@@ -185,13 +198,65 @@ def test_app_js_contains_real_auth_flow_hooks():
     content = (STATIC / "app.js").read_text(encoding="utf-8")
 
     assert "startGithubLogin" in content
+    assert "renderGithubForm" in content
+    assert "renderGithubClientIdGuide" in content
+    assert "whywiki.githubClientId" in content
+    assert "https://github.com/settings/applications/new" in content
     assert "/api/auth/github/device/start" in content
     assert "/api/auth/github/device/poll" in content
+    assert 'client_id: clientId' in content
+    assert "clientId ? { client_id: clientId } : {}" not in content
     assert "startGiteaLogin" in content
     assert "/api/auth/gitea/start" in content
     assert "createExternalLink" in content
     assert "disconnectAccount" in content
     assert "renderAuthConnectionPanel" in content
+    assert "authErrorBody" in content
+    assert "auth.tokenStorageUnavailableBody" in content
+
+
+def test_app_js_renders_copyable_github_user_code():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+
+    assert "copyGithubUserCode" in content
+    assert "renderGithubUserCode" in content
+    assert "navigator.clipboard.writeText" in content
+    assert "auth.copyCode" in content
+    assert "auth.codeCopied" in content
+    assert "auth.copyCodeFailed" in content
+    assert "auth-copy-button" in content
+    assert ".auth-code-row" in css
+    assert ".auth-panel .auth-code-row .auth-copy-button" in css
+
+
+def test_project_card_menu_uses_compact_vector_bubble():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+
+    assert 'createElementNS("http://www.w3.org/2000/svg", "svg")' in content
+    assert 'svg.setAttribute("viewBox", "0 0 16 16")' in content
+    assert 'circle.setAttribute("cy", String(cy))' in content
+    assert "project-card-menu-icon" in content
+    assert 'menuButton.append(createVerticalEllipsisIcon())' in content
+    assert ".project-card .project-card-menu-button" in css
+    assert "width: 28px" in css
+    assert "height: 28px" in css
+    assert "min-height: 28px" in css
+    assert "border-radius: 999px" in css
+    assert "min-width: 88px" in css
+    assert "font-size: 12px" in css
+    assert "justify-content: center" in css
+    assert "text-align: center" in css
+
+
+def test_auth_external_links_open_new_tab_without_replacing_current_tab():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+
+    assert "function createExternalLink" in content
+    assert 'link.target = "_blank"' in content
+    assert 'link.rel = "noopener noreferrer"' in content
+    assert "window.location.href = href" not in content
 
 
 def test_app_js_guards_github_polling_session_state():
@@ -215,11 +280,28 @@ def test_i18n_contains_real_auth_states():
     content = (STATIC / "i18n.js").read_text(encoding="utf-8")
 
     assert "Connect GitHub account" in content
+    assert "Configure GitHub login" in content
+    assert "Get Client ID from GitHub" in content
+    assert "Enable Device Flow" in content
+    assert "Save and open GitHub authorization" in content
     assert "Connect Gitea account" in content
     assert "Waiting for authorization" in content
     assert "Token storage unavailable" in content
+    assert "Run pip install -e . from the WhyWiki checkout, restart whywiki serve, then retry authorization." in content
+    assert '"auth.copyCode": "Copy"' in content
+    assert "Copied" in content
+    assert "Could not copy. Copy the code manually." in content
     assert "打开 GitHub 授权" in content
+    assert "配置 GitHub 登录" in content
+    assert "去 GitHub 获取 Client ID" in content
+    assert "勾选 Enable Device Flow" in content
+    assert "保存并打开 GitHub 授权" in content
+    assert "WHYWIKI_GITHUB_CLIENT_ID" not in content
     assert "令牌存储不可用" in content
+    assert "在 WhyWiki 仓库运行 pip install -e .，重启 whywiki serve 后重新授权。" in content
+    assert '"auth.copyCode": "复制"' in content
+    assert "已复制" in content
+    assert "复制失败，请手动复制验证码。" in content
 
 
 def test_app_js_renders_workspace_access_report():
@@ -269,8 +351,38 @@ def test_app_js_persists_current_project_and_wires_dashboard_endpoints():
     assert "currentProjectId" in content
     assert 'storageSet("whywiki.currentProjectId"' in content
     assert 'storageGet("whywiki.currentProjectId")' in content
+    assert "function returnToProjectsHome" in content
+    assert "function renderHomeNavigationLabels" in content
+    assert "setCurrentProject(null)" in content
+    assert 'document.querySelector("#homeBrandButton")' in content
+    assert 'document.querySelector("#backToProjectsButton")' in content
+    assert 'addEventListener("click", returnToProjectsHome)' in content
     assert "function renderProjectsHome" in content
     assert "function selectProject" in content
+    assert "function deleteProject" in content
+    assert "function createVerticalEllipsisIcon" in content
+    assert "function closeProjectCardMenus" in content
+    assert "function toggleProjectCardMenu" in content
+    assert 'method: "DELETE"' in content
+    assert 'confirm(t("projects.deleteConfirm"' in content
+    assert "project-card-header" in content
+    assert "project-card-menu-wrap" in content
+    assert "project-card-menu-button" in content
+    assert "project-card-menu-icon" in content
+    assert "project-card-menu" in content
+    assert "action-destructive" in content
+    assert 'card.setAttribute("role", "button")' in content
+    assert "card.tabIndex = 0" in content
+    assert 'card.setAttribute("aria-label", t("projects.openCard").replace("{name}", project.name))' in content
+    assert 'card.addEventListener("click", () => selectProject(project))' in content
+    assert 'card.addEventListener("keydown", (event) => {' in content
+    assert 'event.key === "Enter" || event.key === " "' in content
+    assert "event.stopPropagation();" in content
+    assert 't("projects.moreActions")' in content
+    assert 't("projects.open")' not in content
+    assert "project-card-open" not in content
+    assert 'createActionButton("...", "tertiary"' not in content
+    assert 'actions.append(open, remove)' not in content
     assert "function updateWorkspaceChrome" in content
     assert "useDemoProject" not in content
     assert "/api/demo" not in content
@@ -290,16 +402,22 @@ def test_app_js_persists_current_project_and_wires_dashboard_endpoints():
         "/api/projects/${projectId}/facts",
     ):
         assert endpoint in content
+    assert "/api/projects/${project.id}" in content
 
 
 def test_i18n_contains_dynamic_dashboard_keys_for_each_language():
     languages = parse_i18n_keys()
     dynamic_keys = {
         "projects.title",
-        "projects.subtitle",
         "projects.empty",
-        "projects.open",
+        "projects.openCard",
+        "projects.moreActions",
+        "projects.delete",
+        "projects.deleteConfirm",
+        "projects.deleteFailed",
         "projects.noDescription",
+        "nav.home",
+        "nav.backToProjects",
         "status.title",
         "status.subtitle",
         "status.current",
@@ -355,6 +473,33 @@ def test_i18n_contains_dynamic_dashboard_keys_for_each_language():
 
     for language, language_keys in languages.items():
         assert not dynamic_keys - language_keys, f"{language} missing keys: {sorted(dynamic_keys - language_keys)}"
+
+
+def test_projects_home_does_not_render_redundant_subtitle_copy():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    i18n = (STATIC / "i18n.js").read_text(encoding="utf-8")
+
+    assert "projects.subtitle" not in content
+    assert "projects.subtitle" not in i18n
+    assert "Open a saved project, or create a new one for this repository." not in i18n
+    assert "打开当前仓库已经维护的项目" not in i18n
+
+
+def test_projects_home_header_balances_title_and_create_action():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+
+    assert "function createProjectIcon" in content
+    assert 'title.classList.add("project-home-title")' in content
+    assert 'createButton.className = "action-secondary project-home-create-button"' in content
+    assert "createButton.prepend(createProjectIcon())" in content
+    assert "header.append(title, createButton)" in content
+    assert "panel.prepend(header)" in content
+    assert "header.append(createButton)" not in content
+    assert "panel.append(header)" not in content
+    assert ".project-home-title" in css
+    assert ".project-home-create-button" in css
+    assert ".project-home-create-icon" in css
 
 
 def test_chinese_navigation_uses_demand_workspace_terms():
@@ -468,6 +613,20 @@ def test_styles_define_whywiki_visual_language_and_states():
         ".next-action-panel",
         ".onboarding-steps",
         ".empty-state",
+        ".sidebar-home",
+        ".brand-button",
+        ".sidebar .brand-button:hover",
+        ".sidebar-back-button",
+        ".back-icon",
+        "body.has-current-project .sidebar-back-button",
+        '.project-card[role="button"]',
+        '.project-card[role="button"]:hover',
+        '.project-card[role="button"]:focus-visible',
+        ".project-card-header",
+        ".project-card-menu-wrap",
+        ".project-card-menu-button",
+        ".project-card-menu-icon",
+        ".project-card-menu",
         ".operation-feedback",
         ".job-progress",
         ".progress-track",
@@ -486,6 +645,7 @@ def test_styles_define_whywiki_visual_language_and_states():
         "button:focus-visible",
     ):
         assert selector in content
+    assert ".sidebar .brand-button:hover,\n.sidebar .sidebar-back-button:hover" not in content
 
 
 def test_i18n_contains_p0_p1_ux_copy_for_each_language():

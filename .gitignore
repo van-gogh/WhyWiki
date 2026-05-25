@@ -28,3 +28,4 @@ dist/
 
 # Local browser verification artifacts
 .playwright-cli/
+.superpowers/
