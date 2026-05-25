@@ -802,6 +802,9 @@ def test_app_js_uses_snapshot_and_localized_lifecycle_labels():
         "/api/projects/${projectId}/conflicts/${conflictId}/decision",
     ):
         assert symbol in content
+    assert "fact.lifecycleStatus" in content
+    assert "fact.validityStatus" in content
+    assert "Object.values(snapshot.source_statuses || {})" in content
     assert "fieldValue(conflict.status)" not in content
     assert ".status-badge-current" in css
     assert ".status-badge-superseded" in css

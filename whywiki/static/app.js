@@ -1289,13 +1289,14 @@ function lifecycleKey(status = "") {
 }
 
 function requirementLifecycleStatus(fact = {}) {
-  const lifecycleStatus = lifecycleKey(fact.lifecycle_status);
+  const lifecycleStatus = lifecycleKey(fact.lifecycle_status || fact.lifecycleStatus);
   if (lifecycleStatus) return lifecycleStatus;
-  if (fact.validity_status === "current") return "current";
-  if (fact.validity_status === "superseded") return "superseded";
-  if (fact.validity_status === "rejected") return "rejected";
-  if (fact.validity_status === "historical") return "historical";
-  if (fact.validity_status === "conflicting") return "conflicting";
+  const validityStatus = fact.validity_status || fact.validityStatus;
+  if (validityStatus === "current") return "current";
+  if (validityStatus === "superseded") return "superseded";
+  if (validityStatus === "rejected") return "rejected";
+  if (validityStatus === "historical") return "historical";
+  if (validityStatus === "conflicting") return "conflicting";
   if (fact.status === "candidate") return "candidate";
   if (fact.status === "confirmed") return "confirmed";
   if (fact.status === "needs_review") return "needsReview";
@@ -1994,7 +1995,7 @@ async function loadRequirementSnapshot(projectId) {
   return api(`/api/projects/${projectId}/requirements/snapshot?language=${encodeURIComponent(currentLang)}`);
 }
 
-function renderRequirementSnapshot(snapshot) {
+function renderRequirementSnapshot(snapshot = {}) {
   const wrapper = createElement("div", "requirement-snapshot");
   const groups = [
     ["current", "requirement.status.current"],
@@ -2016,7 +2017,7 @@ function renderRequirementSnapshot(snapshot) {
     wrapper.append(section);
   });
 
-  const sourceStatuses = snapshot.source_statuses || [];
+  const sourceStatuses = Array.isArray(snapshot.source_statuses) ? snapshot.source_statuses : Object.values(snapshot.source_statuses || {});
   if (sourceStatuses.length) {
     const section = createElement("section", "requirement-snapshot-section requirement-snapshot-sources");
     section.append(createElement("h3", "", t("status.recent")));
