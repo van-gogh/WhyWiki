@@ -507,16 +507,47 @@ def api_update_fact(project_id: str, fact_id: str, req: FactStatusRequest) -> di
     if req.validity_status is not None and req.validity_status not in allowed_validity:
         raise HTTPException(status_code=400, detail="Invalid fact validity status")
     require_review_access_if_configured(project_id)
+    fields_set = getattr(req, "model_fields_set", None)
+    if fields_set is None:
+        fields_set = getattr(req, "__fields_set__", set())
     with connect() as conn:
         row = conn.execute(
-            "SELECT id FROM facts WHERE project_id = ? AND id = ?",
+            "SELECT * FROM facts WHERE project_id = ? AND id = ?",
             (project_id, fact_id),
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Fact not found")
+
+        current_validity = row["validity_status"] or "unknown"
         next_validity = req.validity_status
         if next_validity is None:
-            next_validity = "current" if req.status == "confirmed" else "unknown"
+            if req.status == "confirmed" and current_validity == "unknown":
+                next_validity = "current"
+            else:
+                next_validity = current_validity
+
+        next_superseded_by = row["superseded_by_fact_id"] or ""
+        if "superseded_by_fact_id" in fields_set:
+            next_superseded_by = req.superseded_by_fact_id or ""
+
+        next_review_note = row["review_note"] or ""
+        if "review_note" in fields_set:
+            next_review_note = req.review_note or ""
+
+        if next_validity == "superseded":
+            if not next_superseded_by:
+                raise HTTPException(status_code=400, detail="Superseded facts require a replacement fact")
+            if next_superseded_by == fact_id:
+                raise HTTPException(status_code=400, detail="A fact cannot supersede itself")
+            replacement = conn.execute(
+                "SELECT id FROM facts WHERE project_id = ? AND id = ?",
+                (project_id, next_superseded_by),
+            ).fetchone()
+            if not replacement:
+                raise HTTPException(status_code=400, detail="Replacement fact not found")
+        else:
+            next_superseded_by = ""
+
         conn.execute(
             """
             UPDATE facts
@@ -526,8 +557,8 @@ def api_update_fact(project_id: str, fact_id: str, req: FactStatusRequest) -> di
             (
                 req.status,
                 next_validity,
-                req.superseded_by_fact_id or "",
-                req.review_note or "",
+                next_superseded_by,
+                next_review_note,
                 project_id,
                 fact_id,
             ),

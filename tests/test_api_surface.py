@@ -8,6 +8,7 @@ from whywiki.db import connect
 from whywiki.services.ingest import ingest_path
 from whywiki.services.wiki_engine import build_project
 from whywiki.services.workspace import create_project
+from whywiki.utils import now_iso, to_json
 
 
 def test_index_versions_static_scripts_for_local_development():
@@ -64,6 +65,53 @@ def wait_for_job(client: TestClient, job_id: str, timeout: float = 3.0) -> dict:
     return last_payload
 
 
+def seed_source(conn, project_id: str, source_id: str, path: str) -> None:
+    timestamp = now_iso()
+    conn.execute(
+        """
+        INSERT INTO sources(id, project_id, source_type, path, title, content_hash, metadata_json, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (source_id, project_id, "local", path, path, f"hash-{source_id}", "{}", timestamp, timestamp),
+    )
+
+
+def seed_requirement_fact(
+    conn,
+    project_id: str,
+    fact_id: str,
+    statement: str,
+    source_id: str,
+    path: str,
+    status: str = "candidate",
+    validity_status: str = "unknown",
+    superseded_by_fact_id: str = "",
+    review_note: str = "",
+) -> None:
+    timestamp = now_iso()
+    conn.execute(
+        """
+        INSERT INTO facts(
+            id, project_id, fact_type, statement, evidence_json, status, confidence,
+            created_at, validity_status, superseded_by_fact_id, review_note, updated_at
+        )
+        VALUES (?, ?, 'requirement', ?, ?, ?, 0.9, ?, ?, ?, ?, ?)
+        """,
+        (
+            fact_id,
+            project_id,
+            statement,
+            to_json([{"source_id": source_id, "path": path}]),
+            status,
+            timestamp,
+            validity_status,
+            superseded_by_fact_id,
+            review_note,
+            timestamp,
+        ),
+    )
+
+
 def test_dashboard_api_lists_sources_facts_and_blocks(tmp_path, monkeypatch):
     monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
     client = TestClient(app)
@@ -110,51 +158,41 @@ def test_requirement_snapshot_api_groups_current_and_superseded_requirements(tmp
     monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
     client = TestClient(app)
     project = create_project("Lifecycle API Project")
-    root = Path(__file__).resolve().parent / "fixtures" / "messy-project"
-    ingest_path(project["id"], root)
-    build_project(project["id"])
+    with connect() as conn:
+        seed_source(conn, project["id"], "source_current", "docs/requirements_v2.md")
+        seed_source(conn, project["id"], "source_old", "docs/requirements_v1.md")
+        seed_requirement_fact(
+            conn,
+            project["id"],
+            "fact_current",
+            "支持离线缓存",
+            "source_current",
+            "docs/requirements_v2.md",
+        )
+        seed_requirement_fact(
+            conn,
+            project["id"],
+            "fact_old",
+            "不做离线缓存",
+            "source_old",
+            "docs/requirements_v1.md",
+        )
+        conn.commit()
 
-    facts = [
-        fact
-        for fact in client.get(f"/api/projects/{project['id']}/facts").json()
-        if fact["fact_type"] == "requirement"
-    ]
-    if len(facts) < 2:
-        all_facts = client.get(f"/api/projects/{project['id']}/facts").json()
-        requirement_like_facts = [
-            fact
-            for fact in all_facts
-            if "需求" in fact["statement"] or "requirement" in fact["statement"].lower()
-        ]
-        assert len(requirement_like_facts) >= 2
-        with connect() as conn:
-            for fact in requirement_like_facts[:2]:
-                conn.execute(
-                    "UPDATE facts SET fact_type = 'requirement' WHERE project_id = ? AND id = ?",
-                    (project["id"], fact["id"]),
-                )
-            conn.commit()
-        facts = [
-            fact
-            for fact in client.get(f"/api/projects/{project['id']}/facts").json()
-            if fact["fact_type"] == "requirement"
-        ]
-    assert len(facts) >= 2
-    winner, old = facts[0], facts[1]
     assert (
         client.patch(
-            f"/api/projects/{project['id']}/facts/{winner['id']}",
+            f"/api/projects/{project['id']}/facts/fact_current",
             json={"status": "confirmed", "validity_status": "current"},
         ).status_code
         == 200
     )
     assert (
         client.patch(
-            f"/api/projects/{project['id']}/facts/{old['id']}",
+            f"/api/projects/{project['id']}/facts/fact_old",
             json={
                 "status": "confirmed",
                 "validity_status": "superseded",
-                "superseded_by_fact_id": winner["id"],
+                "superseded_by_fact_id": "fact_current",
             },
         ).status_code
         == 200
@@ -164,9 +202,100 @@ def test_requirement_snapshot_api_groups_current_and_superseded_requirements(tmp
 
     assert response.status_code == 200
     payload = response.json()
-    assert any(item["id"] == winner["id"] and item["lifecycle_label"] == "当前有效" for item in payload["current"])
-    assert any(item["id"] == old["id"] and item["lifecycle_label"] == "已被替代" for item in payload["superseded"])
+    assert any(item["id"] == "fact_current" and item["lifecycle_label"] == "当前有效" for item in payload["current"])
+    assert any(item["id"] == "fact_old" and item["lifecycle_label"] == "已被替代" for item in payload["superseded"])
     assert payload["source_statuses"]
+
+
+def test_fact_status_patch_preserves_lifecycle_fields_when_omitted(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
+    client = TestClient(app)
+    project = create_project("Lifecycle Preserve Project")
+    with connect() as conn:
+        seed_source(conn, project["id"], "source_1", "docs/requirements.md")
+        seed_requirement_fact(
+            conn,
+            project["id"],
+            "fact_current",
+            "当前需求",
+            "source_1",
+            "docs/requirements.md",
+            status="confirmed",
+            validity_status="current",
+        )
+        seed_requirement_fact(
+            conn,
+            project["id"],
+            "fact_old",
+            "旧需求",
+            "source_1",
+            "docs/requirements.md",
+            status="confirmed",
+            validity_status="superseded",
+            superseded_by_fact_id="fact_current",
+            review_note="保留这条评审备注",
+        )
+        conn.commit()
+
+    response = client.patch(
+        f"/api/projects/{project['id']}/facts/fact_old",
+        json={"status": "needs_review"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "needs_review"
+    assert payload["validity_status"] == "superseded"
+    assert payload["superseded_by_fact_id"] == "fact_current"
+    assert payload["review_note"] == "保留这条评审备注"
+
+
+def test_fact_status_patch_rejects_invalid_superseded_replacement(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
+    client = TestClient(app)
+    project = create_project("Lifecycle Validation Project")
+    other_project = create_project("Other Lifecycle Project")
+    with connect() as conn:
+        seed_source(conn, project["id"], "source_1", "docs/requirements.md")
+        seed_source(conn, other_project["id"], "other_source", "docs/other.md")
+        seed_requirement_fact(conn, project["id"], "fact_current", "当前需求", "source_1", "docs/requirements.md")
+        seed_requirement_fact(conn, project["id"], "fact_old", "旧需求", "source_1", "docs/requirements.md")
+        seed_requirement_fact(conn, other_project["id"], "other_fact", "其他项目需求", "other_source", "docs/other.md")
+        conn.commit()
+
+    missing = client.patch(
+        f"/api/projects/{project['id']}/facts/fact_old",
+        json={"status": "confirmed", "validity_status": "superseded"},
+    )
+    self_reference = client.patch(
+        f"/api/projects/{project['id']}/facts/fact_old",
+        json={
+            "status": "confirmed",
+            "validity_status": "superseded",
+            "superseded_by_fact_id": "fact_old",
+        },
+    )
+    nonexistent = client.patch(
+        f"/api/projects/{project['id']}/facts/fact_old",
+        json={
+            "status": "confirmed",
+            "validity_status": "superseded",
+            "superseded_by_fact_id": "missing_fact",
+        },
+    )
+    cross_project = client.patch(
+        f"/api/projects/{project['id']}/facts/fact_old",
+        json={
+            "status": "confirmed",
+            "validity_status": "superseded",
+            "superseded_by_fact_id": "other_fact",
+        },
+    )
+
+    assert missing.status_code == 400
+    assert self_reference.status_code == 400
+    assert nonexistent.status_code == 400
+    assert cross_project.status_code == 400
 
 
 def test_fact_evidence_endpoint_resolves_original_block_text(tmp_path, monkeypatch):
