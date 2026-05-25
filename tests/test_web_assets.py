@@ -669,6 +669,42 @@ def test_app_js_renders_project_home_as_default_project_entry():
     assert ".project-home-preview-grid" in css
 
 
+def test_project_home_body_and_preview_badges_track_project_state():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+    languages = parse_i18n_keys()
+    render_start = content.index("async function renderProjectHome")
+    status_start = content.index("async function renderStatus")
+    render_body = content[render_start:status_start]
+
+    required_keys = {
+        "projectHome.emptyBody",
+        "projectHome.generateBody",
+        "projectHome.noRequirementsBody",
+        "projectHome.readyBody",
+    }
+    for language, language_keys in languages.items():
+        assert not required_keys - language_keys, f"{language} missing keys: {sorted(required_keys - language_keys)}"
+
+    assert "function projectHomeBodyKey" in content
+    assert 'if (!sources.length) return "projectHome.emptyBody";' in content
+    assert 'if (requirements.length) return "projectHome.readyBody";' in content
+    assert "facts.length || visibleWikiPages(pages).length" in content
+    assert 'return hasGeneratedMaterial ? "projectHome.noRequirementsBody" : "projectHome.generateBody";' in content
+    assert 'requirements.length ? t("projectHome.readyBody") : t("projectHome.emptyBody")' not in render_body
+    assert 'createPanel(t("projectHome.title"))' not in render_body
+    assert 'panel.setAttribute("aria-label", t("projectHome.title"))' in render_body
+
+    for selector in (
+        ".status-badge-conflict",
+        ".status-badge-low-confidence",
+        ".status-badge-needs-review",
+        ".status-badge-confirmed",
+        ".status-badge-source-backed",
+    ):
+        assert selector in css
+
+
 def test_requirement_semantic_helpers_prioritize_evidence_gaps():
     content = (STATIC / "app.js").read_text(encoding="utf-8")
     status_start = content.index("function requirementStatusKind")

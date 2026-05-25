@@ -1905,6 +1905,13 @@ function renderRequirementPreview(requirements) {
   return grid;
 }
 
+function projectHomeBodyKey({ sources = [], facts = [], requirements = [], pages = [] } = {}) {
+  if (!sources.length) return "projectHome.emptyBody";
+  if (requirements.length) return "projectHome.readyBody";
+  const hasGeneratedMaterial = Boolean(facts.length || visibleWikiPages(pages).length);
+  return hasGeneratedMaterial ? "projectHome.noRequirementsBody" : "projectHome.generateBody";
+}
+
 async function renderProjectHome(projectId) {
   const [sources, facts, conflicts, pages] = await Promise.all([
     api(`/api/projects/${projectId}/sources`),
@@ -1913,23 +1920,25 @@ async function renderProjectHome(projectId) {
     api(`/api/projects/${projectId}/wiki`),
   ]);
   const requirements = requirementRows(facts);
+  const wikiPages = visibleWikiPages(pages);
   const state = deriveProjectState({ sources, facts, conflicts, pages });
-  const panel = createPanel(t("projectHome.title"));
-  panel.classList.add("project-home-workspace");
+  const bodyKey = projectHomeBodyKey({ sources, facts, requirements, pages });
+  const panel = createElement("section", "panel output-panel project-home-workspace");
+  panel.setAttribute("aria-label", t("projectHome.title"));
 
   const hero = createElement("section", "project-home-hero");
   const copy = createElement("div", "project-home-copy");
   copy.append(
     renderStatusBadge(t(`workflow.${state.stage}`), state.stage),
     createElement("h1", "", projectDisplayName()),
-    createElement("p", "", requirements.length ? t("projectHome.readyBody") : t("projectHome.emptyBody"))
+    createElement("p", "", t(bodyKey))
   );
   const stats = createElement("div", "project-home-stats");
   stats.append(
     createMetric(t("status.metric.sources"), sources.length),
     createMetric(t("status.metric.requirements"), requirements.length),
     createMetric(t("status.metric.conflicts"), visibleConflictRows(conflicts).length),
-    createMetric(t("status.metric.wiki"), visibleWikiPages(pages).length)
+    createMetric(t("status.metric.wiki"), wikiPages.length)
   );
   hero.append(copy, stats);
   panel.append(hero);

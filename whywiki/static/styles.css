@@ -1253,12 +1253,19 @@ pre {
 
 .status-badge-reviewEvidence,
 .status-badge-review,
+.status-badge-needs-review,
 .status-badge-needs_review,
 .status-badge-medium,
 .status-badge-open {
   border-color: #fed7aa;
   background: var(--warn-bg);
   color: var(--needs-review);
+}
+
+.status-badge-low-confidence {
+  border-color: #fed7aa;
+  background: var(--warn-bg);
+  color: var(--stale);
 }
 
 .status-badge-conflict,
@@ -1270,6 +1277,7 @@ pre {
 
 .status-badge-confirmed,
 .status-badge-evidence,
+.status-badge-source-backed,
 .status-badge-low,
 .status-badge-resolved {
   border-color: #bbf7d0;
