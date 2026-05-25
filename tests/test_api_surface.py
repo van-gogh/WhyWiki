@@ -409,6 +409,48 @@ def test_conflict_decision_api_rejects_non_requirement_conflict(tmp_path, monkey
     assert "only resolve requirement conflicts" in response.json()["detail"]
 
 
+def test_conflict_decision_api_rejects_generic_fact_statement_conflict(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
+    client = TestClient(app)
+    project = create_project("Fact Statement Conflict API Project")
+    with connect() as conn:
+        seed_source(conn, project["id"], "source_fact", "docs/requirements.md")
+        seed_requirement_fact(conn, project["id"], "fact_requirement", "支持离线缓存", "source_fact", "docs/requirements.md")
+        conn.execute(
+            """
+            INSERT INTO conflicts(
+                id, project_id, conflict_key, conflict_type, title, description,
+                evidence_json, severity, status, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "conf_fact",
+                project["id"],
+                "fact:demo",
+                "fact_statement_conflict",
+                "事实陈述冲突",
+                "不是显式需求冲突",
+                to_json([{"source_id": "source_fact", "path": "docs/requirements.md"}]),
+                "medium",
+                "open",
+                now_iso(),
+            ),
+        )
+        conn.commit()
+
+    response = client.post(
+        f"/api/projects/{project['id']}/conflicts/conf_fact/decision",
+        json={
+            "action": "accept_fact",
+            "accepted_fact_id": "fact_requirement",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "only resolve requirement conflicts" in response.json()["detail"]
+
+
 def test_conflict_decision_api_returns_404_for_missing_conflict(tmp_path, monkeypatch):
     monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
     client = TestClient(app)

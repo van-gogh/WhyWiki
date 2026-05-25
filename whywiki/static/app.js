@@ -2347,7 +2347,7 @@ function evidenceOverlaps(conflictEvidence, requirementEvidence) {
 }
 
 function requirementsForConflict(conflict, requirements = []) {
-  if (!["requirement", "requirement_conflict", "fact_statement_conflict"].includes(conflict.conflict_type)) return [];
+  if (!isRequirementConflict(conflict)) return [];
   const conflictEvidence = rowEvidenceItems(conflict);
   const directIds = new Set(conflictEvidence.map((item) => item.fact_id).filter(Boolean).map(String));
   return requirements.filter((requirement) => {
@@ -2357,6 +2357,30 @@ function requirementsForConflict(conflict, requirements = []) {
       requirementEvidence.some((requirementItem) => evidenceOverlaps(conflictItem, requirementItem))
     );
   });
+}
+
+function isRequirementConflict(conflict = {}) {
+  return ["requirement", "requirement_conflict"].includes(conflict.conflict_type);
+}
+
+function renderLegacyConflictActions(conflict, actions) {
+  const resolve = createActionButton(t("action.resolveConflict"), "secondary", () => {
+    actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
+    updateConflictStatus(conflict.id, "resolved").catch((error) => {
+      actions.replaceChildren(renderOperationFeedback("error", t("view.error"), error.message));
+    });
+  });
+  const ignore = createActionButton(t("action.ignoreConflict"), "tertiary", () => {
+    actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
+    updateConflictStatus(conflict.id, "ignored").catch((error) => {
+      actions.replaceChildren(renderOperationFeedback("error", t("view.error"), error.message));
+    });
+  });
+  if (conflict.status === "resolved" || conflict.status === "ignored") {
+    resolve.disabled = true;
+    ignore.disabled = true;
+  }
+  return [resolve, ignore];
 }
 
 function renderConflictDecisionControls(conflict, actions, requirements = []) {
@@ -2451,7 +2475,11 @@ function renderConflictCard(conflict, requirements = []) {
   const description = createElement("p", "", conflict.description || "-");
   const evidence = evidenceItems(conflict);
   const actions = createElement("div", "actions");
-  actions.append(renderConflictDecisionControls(conflict, actions, requirementsForConflict(conflict, requirements)));
+  if (isRequirementConflict(conflict)) {
+    actions.append(renderConflictDecisionControls(conflict, actions, requirementsForConflict(conflict, requirements)));
+  } else {
+    actions.append(...renderLegacyConflictActions(conflict, actions));
+  }
   card.append(
     header,
     description,

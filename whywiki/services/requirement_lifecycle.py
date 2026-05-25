@@ -11,7 +11,7 @@ OUTDATED_REQUIREMENT_STATUSES = {"superseded", "rejected", "historical"}
 ACTIVE_REQUIREMENT_STATUSES = {"current", "confirmed", "needs_review", "candidate"}
 SNAPSHOT_GROUPS = ("current", "needs_review", "superseded", "historical", "rejected", "conflicting")
 DECISION_ACTIONS = {"accept_fact", "merge_requirement", "mark_outdated", "leave_for_later", "ignore_conflict"}
-REQUIREMENT_CONFLICT_TYPES = {"requirement", "requirement_conflict", "fact_statement_conflict"}
+REQUIREMENT_CONFLICT_TYPES = {"requirement", "requirement_conflict"}
 
 
 class RequirementLifecycleNotFound(ValueError):

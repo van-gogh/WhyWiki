@@ -814,6 +814,8 @@ def test_app_js_uses_snapshot_and_localized_lifecycle_labels():
         "function snapshotSourceStatuses",
         "function renderSourceStatusCards",
         "function requirementsForConflict",
+        "function isRequirementConflict",
+        "function renderLegacyConflictActions",
         "function renderRequirementSnapshot",
         "function submitRequirementDecision",
         "/api/projects/${projectId}/requirements/snapshot",
@@ -839,7 +841,9 @@ def test_app_js_uses_snapshot_and_localized_lifecycle_labels():
     assert 'action: "mark_outdated"' in content
     assert "rejected_fact_ids: targets" in content
     assert "requirementsForConflict(conflict, requirements)" in content
-    assert '["requirement", "requirement_conflict", "fact_statement_conflict"].includes(conflict.conflict_type)' in content
+    assert '["requirement", "requirement_conflict"].includes(conflict.conflict_type)' in content
+    assert "renderLegacyConflictActions(conflict, actions)" in content
+    assert "actions.append(...renderLegacyConflictActions(conflict, actions));" in content
     assert ".status-badge-current" in css
     assert ".status-badge-superseded" in css
     assert ".source-status-partially_outdated" in css

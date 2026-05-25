@@ -517,6 +517,46 @@ def test_decision_rejects_non_requirement_conflict_even_with_overlapping_source(
         )
 
 
+def test_decision_rejects_generic_fact_statement_conflict(tmp_path):
+    conn = sqlite3.connect(tmp_path / "whywiki.db")
+    conn.row_factory = sqlite3.Row
+    init_db(conn)
+    project_id = insert_project(conn)
+    insert_source(conn, project_id, "src_fact", "docs/requirements.md")
+    insert_requirement(conn, project_id, "fact_requirement", "支持离线缓存", "src_fact", "docs/requirements.md")
+    conn.execute(
+        """
+        INSERT INTO conflicts(
+            id, project_id, conflict_key, conflict_type, title, description,
+            evidence_json, severity, status, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "conf_fact",
+            project_id,
+            "fact:demo",
+            "fact_statement_conflict",
+            "事实陈述冲突",
+            "不是显式需求冲突",
+            to_json([{"source_id": "src_fact", "path": "docs/requirements.md"}]),
+            "medium",
+            "open",
+            now_iso(),
+        ),
+    )
+    conn.commit()
+
+    with pytest.raises(ValueError, match="only resolve requirement conflicts"):
+        record_requirement_decision(
+            project_id,
+            conflict_id="conf_fact",
+            action="accept_fact",
+            accepted_fact_id="fact_requirement",
+            conn=conn,
+        )
+
+
 def test_successful_decision_does_not_commit_external_transaction(tmp_path):
     db_path = tmp_path / "whywiki.db"
     conn = sqlite3.connect(db_path)
