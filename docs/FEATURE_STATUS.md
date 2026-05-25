@@ -1,6 +1,6 @@
 # WhyWiki 功能状态台账
 
-最后更新：2026-05-12
+最后更新：2026-05-25
 
 这份文档用于长期维护 WhyWiki 的功能状态。每次新增、删除或改变功能行为时，都应同步更新这里。
 
@@ -32,7 +32,7 @@ WhyWiki 首板的核心闭环是：
 | 启动 | 固定默认本地地址 | 已完成 | 默认产品地址是 `http://127.0.0.1:8765`；不应静默 fallback 到随机端口。见 `whywiki/runtime.py`、`whywiki/cli.py`、`tests/test_runtime_cli.py`。 |
 | 启动 | 运行状态、日志、诊断、打开地址 | 部分完成 | `status`、`log`、`doctor`、`open` 已存在；`stop` 目前仍是占位，只提示前台服务用 `Ctrl+C` 停止。 |
 | 项目 | 初始化数据库 | 已完成 | `whywiki init-db`，底层在 `whywiki/db.py`。 |
-| 项目 | 创建和列出项目 | 已完成 | `whywiki create`、`whywiki list`、`POST /api/projects`、`GET /api/projects`。 |
+| 项目 | 创建和列出项目 | 已完成 | `whywiki create`、`whywiki list`、`POST /api/projects`、`GET /api/projects`；Web/API 项目记录支持多标签，用于首页筛选。 |
 | 摄入 | 本地文件夹摄入 | 已完成 | `whywiki ingest <PROJECT_ID> <path>` 和 `POST /api/projects/{project_id}/ingest`；实现位于 `whywiki/services/ingest.py`。 |
 | 摄入 | Git 仓库摄入 | 部分完成 | `--source-type git` 已接受，但首板仍复用本地文件 walker，还没有 Git 历史/提交语义分析。 |
 | 摄入 | 忽略无关目录 | 已完成 | 忽略 `.git`、`.venv`、`node_modules`、构建产物、缓存和 `.whywiki`。 |
@@ -64,6 +64,7 @@ WhyWiki 首板的核心闭环是：
 | Ask | 生产级 RAG / vector search | 暂缓 | 不属于首板目标。 |
 | Web UI | 本地 dashboard shell | 已完成 | 静态页面由 FastAPI 提供，文件在 `whywiki/static/index.html`、`styles.css`、`app.js`、`i18n.js`。 |
 | Web UI | 项目首页与项目内导航 | 已完成 | 默认进入项目列表首页；左侧需求现状、原始文件、需求冲突点、需求问答等工作区导航只在打开具体项目后显示。见 `whywiki/static/index.html`、`whywiki/static/app.js` 和 `tests/test_web_assets.py`。 |
+| Web UI | 项目标签筛选与批量赋标 | 已完成 | 项目首页展示项目标签 chips，支持多选筛选、空标签提示、无匹配清除筛选；可通过标签栏新增标签并批量选择项目赋标，也可从项目卡片菜单打开居中弹窗维护单项目标签。 |
 | Web UI | 项目删除入口 | 已完成 | 项目卡片右上角三点菜单提供“删除”危险操作，删除前二次确认；删除当前项目会清空当前项目状态并刷新项目列表。 |
 | Web UI | 需求现状视图 | 已完成 | 展示 source/fact/conflict/wiki 指标和当前待审查摘要，并提供项目内摄入和生成入口。 |
 | Web UI | 原始文件视图 | 已完成 | 能列出来源，并通过 API 查看 source/block 内容。 |
@@ -75,7 +76,7 @@ WhyWiki 首板的核心闭环是：
 | Git provider login | 真实 Provider 登录 | 已完成 | GitHub device flow 和 Gitea PKCE 可在本地连接 provider 账号；token 不进入 `accounts.json`，默认走系统凭据存储，开发环境可显式启用文件 fallback。 |
 | Web UI | 证据原文查看 | 已完成 | `GET /api/projects/{project_id}/facts/{fact_id}/evidence` 和 `/conflicts/{conflict_id}/evidence` 会解析 evidence pointer，返回原始 block 片段、来源、路径和位置；Web 证据抽屉可加载原文。 |
 | Web UI | 扫描/生成进度 | 已完成 | Web 扫描和生成 Wiki 走 `ingest-jobs`、`build-jobs` 与 `/api/jobs/{job_id}` 轮询，状态持久化在 `operation_jobs`。 |
-| API | Project API | 已完成 | create/list/get/delete project endpoints 已存在；删除项目会级联清理来源、blocks、facts、conflicts、wiki pages 和 operation jobs。 |
+| API | Project API | 已完成 | create/list/get/update-tags/delete project endpoints 已存在；删除项目会级联清理来源、blocks、facts、conflicts、wiki pages 和 operation jobs。 |
 | API | Source/block/fact API | 已完成 | endpoints 已暴露 sources、source blocks、facts。 |
 | API | Wiki/conflict/handover/ask API | 已完成 | endpoints 已暴露 wiki pages、conflicts、conflict status update、handover、ask。 |
 | 测试 | 混乱项目测试夹具 | 已完成 | `tests/fixtures/messy-project` 仅作为测试/开发夹具使用，不作为产品内置 Demo 入口或 packaged asset。 |

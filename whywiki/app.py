@@ -7,7 +7,7 @@ from urllib.parse import unquote, urlparse
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .collaboration.accounts import AccountStore
 from .collaboration.artifacts import (
@@ -29,7 +29,7 @@ from .services.evidence import conflict_evidence, fact_evidence
 from .services.ingest import ingest_path
 from .services.jobs import create_job, get_job, start_background_job
 from .services.wiki_engine import build_project
-from .services.workspace import create_project, delete_project, get_project, list_projects
+from .services.workspace import create_project, delete_project, get_project, list_projects, update_project_tags
 
 app = FastAPI(title="WhyWiki", version="0.1.0")
 static_dir = Path(__file__).parent / "static"
@@ -40,6 +40,11 @@ auth_sessions = AuthSessionStore()
 class CreateProjectRequest(BaseModel):
     name: str
     description: str = ""
+    tags: list[str] = Field(default_factory=list)
+
+
+class UpdateProjectRequest(BaseModel):
+    tags: list[str] | None = None
 
 
 class IngestRequest(BaseModel):
@@ -194,7 +199,7 @@ def index() -> str:
 @app.post("/api/projects")
 def api_create_project(req: CreateProjectRequest) -> dict:
     require_workspace_read_if_configured()
-    return create_project(req.name, req.description)
+    return create_project(req.name, req.description, req.tags)
 
 
 @app.get("/api/projects")
@@ -350,6 +355,15 @@ def api_get_project(project_id: str) -> dict:
     require_workspace_read_if_configured(project_id)
     try:
         return get_project(project_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.patch("/api/projects/{project_id}")
+def api_update_project(project_id: str, req: UpdateProjectRequest) -> dict:
+    require_review_access_if_configured(project_id)
+    try:
+        return update_project_tags(project_id, req.tags or [])
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

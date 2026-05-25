@@ -20,6 +20,37 @@ def test_index_versions_static_scripts_for_local_development():
     assert '/static/app.js?v=' in response.text
 
 
+def test_project_api_persists_and_updates_tags(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
+    client = TestClient(app)
+
+    created = client.post(
+        "/api/projects",
+        json={
+            "name": "Tagged Project",
+            "description": "Project with browse tags",
+            "tags": ["AI", "  Research  ", "AI", ""],
+        },
+    )
+
+    assert created.status_code == 200
+    project = created.json()
+    assert project["tags"] == ["ai", "research"]
+
+    listed = client.get("/api/projects")
+    assert listed.status_code == 200
+    assert listed.json()[0]["tags"] == ["ai", "research"]
+
+    updated = client.patch(
+        f"/api/projects/{project['id']}",
+        json={"tags": ["Client", "handover"]},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["tags"] == ["client", "handover"]
+    assert client.get(f"/api/projects/{project['id']}").json()["tags"] == ["client", "handover"]
+
+
 def wait_for_job(client: TestClient, job_id: str, timeout: float = 3.0) -> dict:
     deadline = time.time() + timeout
     last_payload = {}

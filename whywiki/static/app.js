@@ -4,6 +4,7 @@ let currentProjectId = storageGet("whywiki.currentProjectId");
 let currentProject = null;
 let activeView = "projects";
 let languageBounceTimer = null;
+let selectedProjectTags = [];
 let authFlowId = 0;
 let githubPollTimer = null;
 let githubCopyResetTimer = null;
@@ -889,6 +890,302 @@ function createProjectIcon() {
   return svg;
 }
 
+function createProjectTagChip(label, { active = false, onClick = null, title = "" } = {}) {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "project-tag-chip";
+  chip.textContent = label;
+  chip.setAttribute("aria-pressed", String(active));
+  if (title) chip.title = title;
+  if (active) chip.classList.add("is-active");
+  if (onClick) chip.addEventListener("click", onClick);
+  return chip;
+}
+
+function toggleProjectTagFilter(tag) {
+  const normalized = normalizeProjectTag(tag);
+  if (!normalized) {
+    selectedProjectTags = [];
+    loadView("projects");
+    return;
+  }
+  selectedProjectTags = selectedProjectTags.includes(normalized)
+    ? selectedProjectTags.filter((item) => item !== normalized)
+    : [...selectedProjectTags, normalized];
+  loadView("projects");
+}
+
+function clearProjectTagFilters() {
+  selectedProjectTags = [];
+  loadView("projects");
+}
+
+function renderProjectTagFilters(projects) {
+  const tags = allProjectTags(projects);
+  selectedProjectTags = selectedProjectTags.filter((tag) => tags.includes(tag));
+
+  const bar = createElement("section", "project-tag-filter-bar");
+  const heading = createElement("div", "project-tag-filter-title");
+  heading.append(
+    createElement("strong", "", t("projects.tags.title")),
+    createElement("span", "muted", tags.length ? t("projects.tags.help") : t("projects.tags.empty"))
+  );
+
+  const chips = createElement("div", "project-tag-filter-chips");
+  chips.append(createProjectTagChip(t("projects.tags.all"), {
+    active: selectedProjectTags.length === 0,
+    onClick: () => clearProjectTagFilters(),
+  }));
+  tags.forEach((tag) => {
+    chips.append(createProjectTagChip(tag, {
+      active: selectedProjectTags.includes(tag),
+      onClick: () => toggleProjectTagFilter(tag),
+    }));
+  });
+
+  const actions = createElement("div", "project-tag-filter-actions");
+  const add = createActionButton(t("projects.tags.add"), "secondary", () => showBatchAddProjectTagModal(projects));
+  add.classList.add("project-tag-add");
+  const clear = createActionButton(t("projects.tags.clear"), "tertiary", clearProjectTagFilters);
+  clear.classList.add("project-tag-clear");
+  clear.disabled = selectedProjectTags.length === 0;
+  actions.append(add, clear);
+  bar.append(heading, chips, actions);
+  return bar;
+}
+
+function renderProjectTags(project) {
+  const tags = projectTags(project);
+  const wrap = createElement("div", "project-card-tags");
+  if (!tags.length) {
+    wrap.append(createElement("span", "project-tag-empty", t("projects.tags.none")));
+    return wrap;
+  }
+  tags.forEach((tag) => {
+    const chip = createProjectTagChip(tag, {
+      active: selectedProjectTags.includes(tag),
+      onClick: (event) => {
+        event.stopPropagation();
+        toggleProjectTagFilter(tag);
+      },
+    });
+    chip.classList.add("project-card-tag");
+    wrap.append(chip);
+  });
+  return wrap;
+}
+
+function closeProjectTagModal() {
+  const modal = document.querySelector(".project-tag-modal-backdrop");
+  if (modal) modal.remove();
+  document.body.classList.remove("has-project-tag-modal");
+}
+
+function createProjectTagModal({ title, body, size = "small" }) {
+  closeProjectTagModal();
+  const backdrop = createElement("div", "project-tag-modal-backdrop");
+  backdrop.setAttribute("role", "presentation");
+  const panel = createElement("section", `project-tag-modal-panel project-tag-modal-panel--${size}`);
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-modal", "true");
+  panel.setAttribute("aria-labelledby", "projectTagModalTitle");
+  const header = createElement("header", "project-tag-modal-header");
+  const copy = createElement("div", "project-tag-modal-copy");
+  const titleNode = createElement("h2", "", title);
+  titleNode.id = "projectTagModalTitle";
+  copy.append(titleNode, createElement("p", "muted", body));
+  const close = createActionButton(t("projects.tags.close"), "tertiary", closeProjectTagModal);
+  close.classList.add("project-tag-modal-close");
+  header.append(copy, close);
+  const content = createElement("div", "project-tag-modal-content");
+  const footer = createElement("footer", "project-tag-modal-footer");
+  panel.append(header, content, footer);
+  backdrop.append(panel);
+  backdrop.addEventListener("click", (event) => {
+    if (event.target === backdrop) closeProjectTagModal();
+  });
+  document.body.append(backdrop);
+  document.body.classList.add("has-project-tag-modal");
+  return { backdrop, panel, content, footer };
+}
+
+function renderProjectTagChoiceList(tags, selectedTags, onChange) {
+  const wrap = createElement("div", "project-tag-choice-list");
+  if (!tags.length) {
+    wrap.append(createElement("p", "project-tag-empty", t("projects.tags.noExisting")));
+    return wrap;
+  }
+  tags.forEach((tag) => {
+    const chip = createProjectTagChip(tag, {
+      active: selectedTags.has(tag),
+      onClick: () => {
+        if (selectedTags.has(tag)) {
+          selectedTags.delete(tag);
+        } else {
+          selectedTags.add(tag);
+        }
+        onChange();
+      },
+    });
+    chip.classList.add("project-tag-choice");
+    wrap.append(chip);
+  });
+  return wrap;
+}
+
+function renderSelectableProjectCards(projects, selectedProjectIds, onSelectionChange) {
+  const grid = createElement("div", "project-select-grid");
+  projects.forEach((project) => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "project-select-card";
+    card.setAttribute("aria-pressed", String(selectedProjectIds.has(project.id)));
+    if (selectedProjectIds.has(project.id)) card.classList.add("is-selected");
+    const tags = projectTags(project);
+    card.append(
+      createElement("strong", "", project.name),
+      createElement("span", "muted", project.description || t("projects.noDescription")),
+      createElement("span", "project-select-card-tags", tags.length ? tags.join(", ") : t("projects.tags.none"))
+    );
+    card.addEventListener("click", () => {
+      if (selectedProjectIds.has(project.id)) {
+        selectedProjectIds.delete(project.id);
+      } else {
+        selectedProjectIds.add(project.id);
+      }
+      card.classList.toggle("is-selected", selectedProjectIds.has(project.id));
+      card.setAttribute("aria-pressed", String(selectedProjectIds.has(project.id)));
+      onSelectionChange();
+    });
+    grid.append(card);
+  });
+  return grid;
+}
+
+async function saveProjectTags(project, tags, status, submit, { reload = true } = {}) {
+  submit.disabled = true;
+  status.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
+  try {
+    await api(`/api/projects/${project.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ tags }),
+    });
+    if (reload) await loadView("projects");
+  } catch (error) {
+    submit.disabled = false;
+    status.replaceChildren(renderOperationFeedback("error", t("view.error"), `${error.message} ${t("operation.error.recovery")}`));
+    throw error;
+  }
+}
+
+async function showEditProjectTagsModal(project) {
+  closeProjectCardMenus();
+  const projects = await api("/api/projects");
+  const latestProject = projects.find((item) => item.id === project.id) || project;
+  const allTags = allProjectTags(projects);
+  const selectedTags = new Set(projectTags(latestProject));
+  const modal = createProjectTagModal({
+    title: `${t("projects.tags.editTitle")} · ${latestProject.name}`,
+    body: t("projects.tags.editBody"),
+    size: "small",
+  });
+  const input = document.createElement("input");
+  input.name = "project-tag-new";
+  input.placeholder = t("projects.tags.modalNewPlaceholder");
+  input.setAttribute("aria-label", t("projects.tags.newTagLabel"));
+  const choicesMount = createElement("div", "project-tag-choice-mount");
+  const status = createElement("div", "status-line");
+  const submit = createActionButton(t("projects.tags.save"), "primary");
+  const cancel = createActionButton(t("action.cancel"), "secondary", closeProjectTagModal);
+
+  const renderChoices = () => {
+    choicesMount.replaceChildren(renderProjectTagChoiceList(allTags, selectedTags, renderChoices));
+  };
+  renderChoices();
+
+  const field = createElement("label", "project-tag-modal-field");
+  field.append(createElement("span", "", t("projects.tags.newTagLabel")), input);
+  modal.content.append(
+    createElement("h3", "", t("projects.tags.chooseExisting")),
+    choicesMount,
+    field,
+    createElement("p", "project-tags-form-help", t("projects.tags.inputHelp"))
+  );
+  modal.footer.append(status, cancel, submit);
+
+  submit.addEventListener("click", async () => {
+    const tags = uniqueProjectTags([...selectedTags, ...tagsInputValue(input.value)]);
+    try {
+      await saveProjectTags(latestProject, tags, status, submit);
+      closeProjectTagModal();
+    } catch {
+      return;
+    }
+  });
+  input.focus();
+}
+
+function showBatchAddProjectTagModal(projects) {
+  const selectedProjectIds = new Set();
+  const modal = createProjectTagModal({
+    title: t("projects.tags.batchTitle"),
+    body: t("projects.tags.batchBody"),
+    size: "large",
+  });
+  const input = document.createElement("input");
+  input.name = "batch-tag";
+  input.placeholder = t("projects.tags.batchPlaceholder");
+  input.setAttribute("aria-label", t("projects.tags.batchNameLabel"));
+  const status = createElement("div", "status-line");
+  const submit = createActionButton(t("projects.tags.batchSubmit"), "primary");
+  const cancel = createActionButton(t("action.cancel"), "secondary", closeProjectTagModal);
+  const selectionSummary = createElement("p", "project-tag-selection-summary", t("projects.tags.batchNoSelection"));
+
+  const syncSubmit = () => {
+    const tag = normalizeProjectTag(input.value);
+    submit.disabled = !tag || selectedProjectIds.size === 0;
+    selectionSummary.textContent = selectedProjectIds.size
+      ? t("projects.tags.batchSelected").replace("{count}", String(selectedProjectIds.size))
+      : t("projects.tags.batchNoSelection");
+  };
+
+  const field = createElement("label", "project-tag-modal-field project-tag-modal-field--hero");
+  field.append(createElement("span", "", t("projects.tags.batchNameLabel")), input);
+  modal.content.append(
+    field,
+    createElement("h3", "", t("projects.tags.batchSelectTitle")),
+    createElement("p", "muted", t("projects.tags.batchSelectHelp")),
+    renderSelectableProjectCards(projects, selectedProjectIds, syncSubmit),
+    selectionSummary
+  );
+  modal.footer.append(status, cancel, submit);
+  input.addEventListener("input", syncSubmit);
+  submit.addEventListener("click", async () => {
+    const tag = normalizeProjectTag(input.value);
+    if (!tag) {
+      status.replaceChildren(renderOperationFeedback("error", t("view.error"), t("projects.tags.batchNoTag")));
+      return;
+    }
+    if (!selectedProjectIds.size) {
+      status.replaceChildren(renderOperationFeedback("error", t("view.error"), t("projects.tags.batchNoSelection")));
+      return;
+    }
+    submit.disabled = true;
+    status.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
+    try {
+      const selectedProjects = projects.filter((item) => selectedProjectIds.has(item.id));
+      await Promise.all(selectedProjects.map((item) => saveProjectTags(item, addTagToProject(item, tag), status, submit, { reload: false })));
+      selectedProjectTags = [tag];
+      closeProjectTagModal();
+      await loadView("projects");
+    } catch {
+      submit.disabled = false;
+    }
+  });
+  syncSubmit();
+  input.focus();
+}
+
 function appendField(list, label, value) {
   const row = document.createElement("div");
   const labelNode = document.createElement("strong");
@@ -938,6 +1235,45 @@ function parseJsonList(value) {
   } catch {
     return [value];
   }
+}
+
+function normalizeProjectTag(value) {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function uniqueProjectTags(tags = []) {
+  const seen = new Set();
+  const normalized = [];
+  tags.forEach((tag) => {
+    const value = normalizeProjectTag(tag);
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    normalized.push(value);
+  });
+  return normalized;
+}
+
+function projectTags(project = {}) {
+  const rawTags = project.tags || parseJsonList(project.tags_json);
+  return uniqueProjectTags(rawTags);
+}
+
+function projectMatchesTags(project) {
+  if (!selectedProjectTags.length) return true;
+  const tags = projectTags(project);
+  return selectedProjectTags.every((tag) => tags.includes(tag));
+}
+
+function allProjectTags(projects = []) {
+  return uniqueProjectTags(projects.flatMap((project) => projectTags(project))).sort((a, b) => a.localeCompare(b));
+}
+
+function tagsInputValue(value) {
+  return uniqueProjectTags(String(value || "").split(","));
+}
+
+function addTagToProject(project, tag) {
+  return uniqueProjectTags([...projectTags(project), tag]);
 }
 
 function createPanel(titleText) {
@@ -1367,6 +1703,16 @@ function createProjectCard(project) {
   const menu = createElement("div", "project-card-menu");
   menu.hidden = true;
   menu.setAttribute("role", "menu");
+  const editTags = createActionButton(t("projects.tags.edit"), "tertiary", (event) => {
+    event.stopPropagation();
+    closeProjectCardMenus();
+    showEditProjectTagsModal(project).catch((error) => {
+      const appNode = appContainer();
+      if (appNode) appNode.prepend(renderOperationFeedback("error", t("view.error"), `${error.message} ${t("operation.error.recovery")}`));
+    });
+  });
+  editTags.classList.add("project-card-edit-tags");
+  editTags.setAttribute("role", "menuitem");
   const remove = createActionButton(t("projects.delete"), "destructive", (event) => {
     event.stopPropagation();
     closeProjectCardMenus();
@@ -1374,7 +1720,7 @@ function createProjectCard(project) {
   });
   remove.classList.add("project-card-delete", "action-destructive");
   remove.setAttribute("role", "menuitem");
-  menu.append(remove);
+  menu.append(editTags, remove);
   menuWrap.append(menuButton, menu);
   header.append(title, menuWrap);
   const description = document.createElement("p");
@@ -1382,7 +1728,7 @@ function createProjectCard(project) {
   const meta = document.createElement("span");
   meta.className = "muted";
   meta.textContent = project.created_at || "";
-  card.append(header, description, meta);
+  card.append(header, description, renderProjectTags(project), meta);
   return card;
 }
 
@@ -1417,9 +1763,22 @@ async function renderProjectsHome() {
     return panel;
   }
 
+  panel.append(renderProjectTagFilters(projects));
+  const visibleProjects = projects.filter(projectMatchesTags);
+  if (!visibleProjects.length) {
+    panel.append(renderEmptyState({
+      title: t("projects.tags.noMatchTitle"),
+      body: t("projects.tags.noMatchBody"),
+      actionLabel: t("projects.tags.clear"),
+      onAction: clearProjectTagFilters,
+      kind: "project",
+    }));
+    return panel;
+  }
+
   const list = document.createElement("div");
   list.className = "project-list";
-  projects.forEach((project) => list.append(createProjectCard(project)));
+  visibleProjects.forEach((project) => list.append(createProjectCard(project)));
   panel.append(list);
   return panel;
 }
@@ -1440,6 +1799,9 @@ function showCreateProjectForm() {
   const descriptionInput = document.createElement("textarea");
   descriptionInput.name = "description";
   descriptionInput.placeholder = t("project.create.descriptionPlaceholder");
+  const tagsInput = document.createElement("input");
+  tagsInput.name = "tags";
+  tagsInput.placeholder = t("projects.tags.placeholder");
   const status = document.createElement("p");
   status.className = "status-line";
   const submit = document.createElement("button");
@@ -1449,6 +1811,8 @@ function showCreateProjectForm() {
 
   appendLabeledControl(form, t("project.create.name"), nameInput);
   appendLabeledControl(form, t("project.create.description"), descriptionInput);
+  appendLabeledControl(form, t("projects.tags.inputLabel"), tagsInput);
+  form.append(createElement("p", "project-tags-form-help", t("projects.tags.inputHelp")));
   form.append(submit, status);
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1460,6 +1824,7 @@ function showCreateProjectForm() {
         body: JSON.stringify({
           name: nameInput.value.trim(),
           description: descriptionInput.value.trim(),
+          tags: tagsInputValue(tagsInput.value),
         }),
       });
       setCurrentProject(project);
@@ -2223,7 +2588,10 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeProjectCardMenus();
+  if (event.key === "Escape") {
+    closeProjectCardMenus();
+    closeProjectTagModal();
+  }
 });
 
 const githubLoginButton = document.querySelector("#loginGithubButton");

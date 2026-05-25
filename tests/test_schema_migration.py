@@ -18,6 +18,7 @@ def test_init_db_adds_schema_version_and_review_fields(tmp_path):
     version = conn.execute("SELECT version FROM schema_version").fetchone()
     assert version["version"] >= 1
     assert {"status"}.issubset(columns(conn, "projects"))
+    assert {"tags_json"}.issubset(columns(conn, "projects"))
     assert {"version_hint"}.issubset(columns(conn, "sources"))
     assert {"validity_status"}.issubset(columns(conn, "facts"))
     assert {"conflict_key"}.issubset(columns(conn, "conflicts"))
