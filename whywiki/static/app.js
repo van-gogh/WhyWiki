@@ -323,9 +323,6 @@ async function startGiteaLogin(formData) {
       body: JSON.stringify({ base_url: baseUrl, client_id: clientId }),
     });
     if (sessionId !== authConnectionState.sessionId || authConnectionState.mode !== "gitea_form") return;
-    if (result.authorization_url) {
-      window.open(result.authorization_url, "_blank", "noopener");
-    }
     authConnectionState = {
       sessionId,
       mode: "gitea_redirect",
@@ -413,9 +410,7 @@ function renderAuthConnectionPanel() {
       githubBox.append(createElement("code", "auth-code", authConnectionState.github.userCode));
     }
     if (authConnectionState.github.verificationUri) {
-      const open = createActionButton(t("auth.openGithub"), "secondary", () => {
-        window.open(authConnectionState.github.verificationUri, "_blank", "noopener");
-      });
+      const open = createExternalLink(authConnectionState.github.verificationUri, t("auth.openGithub"), "secondary");
       githubBox.append(open);
     }
     children.push(githubBox);
@@ -428,9 +423,7 @@ function renderAuthConnectionPanel() {
   }
 
   if (authConnectionState.gitea?.authorizationUrl) {
-    const open = createActionButton(t("auth.openGitea"), "secondary", () => {
-      window.open(authConnectionState.gitea.authorizationUrl, "_blank", "noopener");
-    });
+    const open = createExternalLink(authConnectionState.gitea.authorizationUrl, t("auth.openGitea"), "secondary");
     const hint = renderAuthMessage("loading", t("auth.waiting"), t("auth.giteaReturn"));
     children.push(hint, open);
   }
@@ -701,6 +694,16 @@ function createActionButton(label, kind = "secondary", onClick = null) {
   button.textContent = label;
   if (onClick) button.addEventListener("click", onClick);
   return button;
+}
+
+function createExternalLink(href, label, kind = "secondary") {
+  const link = document.createElement("a");
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.className = `action-${kind}`;
+  link.textContent = label;
+  return link;
 }
 
 function visibleConflictRows(conflicts) {

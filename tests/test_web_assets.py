@@ -189,7 +189,7 @@ def test_app_js_contains_real_auth_flow_hooks():
     assert "/api/auth/github/device/poll" in content
     assert "startGiteaLogin" in content
     assert "/api/auth/gitea/start" in content
-    assert 'window.open(result.authorization_url, "_blank", "noopener")' in content
+    assert "createExternalLink" in content
     assert "disconnectAccount" in content
     assert "renderAuthConnectionPanel" in content
 

@@ -298,12 +298,16 @@ body.has-current-project .project-pill {
 .auth-panel .action-primary,
 .auth-panel .action-secondary,
 .auth-panel .action-tertiary {
+  display: inline-block;
   min-width: 0;
   border-radius: 6px;
   padding: 7px 8px;
   font-size: 12px;
   font-weight: 700;
   text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  box-sizing: border-box;
 }
 
 .auth-panel .action-primary {
