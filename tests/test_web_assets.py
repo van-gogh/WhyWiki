@@ -653,6 +653,22 @@ def test_app_js_defines_requirement_semantic_helpers():
     assert 'row.status === "needs_review"' in content
 
 
+def test_requirement_semantic_helpers_prioritize_evidence_gaps():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    status_start = content.index("function requirementStatusKind")
+    label_start = content.index("function requirementStatusLabel")
+    status_body = content[status_start:label_start]
+
+    conflict_pos = status_body.index('row.validity_status === "conflicting"')
+    low_confidence_pos = status_body.index('!evidenceItems(row).length')
+    needs_review_pos = status_body.index('row.status === "needs_review"')
+    confirmed_pos = status_body.index('row.status === "confirmed"')
+
+    assert conflict_pos < low_confidence_pos < needs_review_pos < confirmed_pos
+    assert 'filters.has("source-backed") && kind === "source-backed"' in content
+    assert 'filters.has("source-backed") && requirementSourceCount(row) > 0' not in content
+
+
 def test_styles_define_whywiki_visual_language_and_states():
     content = (STATIC / "styles.css").read_text(encoding="utf-8")
 

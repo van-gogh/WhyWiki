@@ -1029,9 +1029,9 @@ function supportingFactRows(facts = []) {
 
 function requirementStatusKind(row) {
   if (row.validity_status === "conflicting") return "conflict";
+  if (!evidenceItems(row).length) return "low-confidence";
   if (row.status === "needs_review" || row.status === "candidate") return "needs-review";
   if (row.status === "confirmed" || row.validity_status === "current") return "confirmed";
-  if (!evidenceItems(row).length) return "low-confidence";
   return "source-backed";
 }
 
@@ -1068,7 +1068,7 @@ function visibleRequirementRows(rows = [], filters = new Set(["all"])) {
       (filters.has("needs-review") && kind === "needs-review") ||
       (filters.has("confirmed") && kind === "confirmed")
     );
-    const sourceMatch = filters.has("source-backed") && requirementSourceCount(row) > 0;
+    const sourceMatch = filters.has("source-backed") && kind === "source-backed";
     const recentMatch = filters.has("recent") && Boolean(row.updated_at || row.created_at);
     return statusMatch || sourceMatch || recentMatch;
   });
