@@ -44,19 +44,11 @@ def test_gitea_identity_key_distinguishes_servers_and_normalizes_trailing_slash(
     assert first.identity_key != second.identity_key
 
 
-def test_file_token_store_from_env_requires_explicit_fallback(monkeypatch, tmp_path):
-    monkeypatch.delenv("WHYWIKI_ALLOW_FILE_TOKEN_STORE", raising=False)
-
-    with pytest.raises(TokenStoreUnavailable):
-        FileTokenStore.from_env(tmp_path / "tokens.json")
-
-
-def test_file_token_store_round_trip_with_owner_only_permissions(monkeypatch, tmp_path):
-    monkeypatch.setenv("WHYWIKI_ALLOW_FILE_TOKEN_STORE", "1")
+def test_file_token_store_round_trip_with_owner_only_permissions(tmp_path):
     path = tmp_path / "auth" / "tokens.json"
     identity = ProviderIdentity(provider="github", account="alice", provider_user_id="1")
     token = ProviderToken(access_token="secret-token", scope="repo read:user")
-    store = FileTokenStore.from_env(path)
+    store = FileTokenStore(path)
 
     store.save(identity, token)
 
@@ -77,30 +69,18 @@ def test_file_token_store_round_trip_with_owner_only_permissions(monkeypatch, tm
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX mode bits are not portable to this platform")
-def test_file_token_store_replaces_permissive_existing_file_with_owner_only_permissions(monkeypatch, tmp_path):
-    monkeypatch.setenv("WHYWIKI_ALLOW_FILE_TOKEN_STORE", "1")
+def test_file_token_store_replaces_permissive_existing_file_with_owner_only_permissions(tmp_path):
     path = tmp_path / "auth" / "tokens.json"
     path.parent.mkdir(parents=True)
     path.write_text("{}\n", encoding="utf-8")
     path.chmod(0o644)
     identity = ProviderIdentity(provider="github", account="alice", provider_user_id="1")
-    store = FileTokenStore.from_env(path)
+    store = FileTokenStore(path)
 
     store.save(identity, ProviderToken(access_token="secret-token"))
 
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert json.loads(path.read_text(encoding="utf-8"))["github:1"]["access_token"] == "secret-token"
-
-
-def test_default_token_store_uses_file_fallback_when_keyring_unavailable(monkeypatch, tmp_path):
-    monkeypatch.setattr(KeyringTokenStore, "available", lambda self: False)
-    monkeypatch.setenv("WHYWIKI_ALLOW_FILE_TOKEN_STORE", "1")
-    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
-
-    store = default_token_store()
-
-    assert isinstance(store, FileTokenStore)
-    assert store.path == tmp_path / "data" / "auth" / "tokens.json"
 
 
 def test_keyring_token_store_reports_broken_backend_unavailable(monkeypatch, tmp_path):
@@ -114,14 +94,14 @@ def test_keyring_token_store_reports_broken_backend_unavailable(monkeypatch, tmp
         delete_password=lambda service, username: None,
     )
     monkeypatch.setitem(sys.modules, "keyring", fake_keyring)
-    monkeypatch.setenv("WHYWIKI_ALLOW_FILE_TOKEN_STORE", "1")
-    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
 
     assert not KeyringTokenStore().available()
     store = default_token_store()
 
     assert isinstance(store, FileTokenStore)
-    assert store.path == tmp_path / "data" / "auth" / "tokens.json"
+    assert store.path == tmp_path / "xdg" / "whywiki" / "tokens.json"
 
 
 def test_xdg_token_path_uses_xdg_data_home(monkeypatch, tmp_path):
