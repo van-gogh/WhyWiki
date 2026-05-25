@@ -1069,7 +1069,7 @@ function visibleRequirementRows(rows = [], filters = new Set(["all"])) {
       (filters.has("confirmed") && kind === "confirmed")
     );
     const sourceMatch = filters.has("source-backed") && kind === "source-backed";
-    const recentMatch = filters.has("recent") && Boolean(row.updated_at || row.created_at);
+    const recentMatch = filters.has("recent") && Boolean(row.updated_at || row.recent || row.recently_touched);
     return statusMatch || sourceMatch || recentMatch;
   });
 }

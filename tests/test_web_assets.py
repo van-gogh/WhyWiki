@@ -658,6 +658,9 @@ def test_requirement_semantic_helpers_prioritize_evidence_gaps():
     status_start = content.index("function requirementStatusKind")
     label_start = content.index("function requirementStatusLabel")
     status_body = content[status_start:label_start]
+    visible_start = content.index("function visibleRequirementRows")
+    evidence_start = content.index("function evidenceItems")
+    visible_body = content[visible_start:evidence_start]
 
     conflict_pos = status_body.index('row.validity_status === "conflicting"')
     low_confidence_pos = status_body.index('!evidenceItems(row).length')
@@ -667,6 +670,8 @@ def test_requirement_semantic_helpers_prioritize_evidence_gaps():
     assert conflict_pos < low_confidence_pos < needs_review_pos < confirmed_pos
     assert 'filters.has("source-backed") && kind === "source-backed"' in content
     assert 'filters.has("source-backed") && requirementSourceCount(row) > 0' not in content
+    assert "row.updated_at || row.recent || row.recently_touched" in visible_body
+    assert "row.created_at" not in visible_body
 
 
 def test_styles_define_whywiki_visual_language_and_states():
