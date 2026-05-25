@@ -112,6 +112,30 @@ def seed_requirement_fact(
     )
 
 
+def seed_requirement_conflict(conn, project_id: str, conflict_id: str = "conf_1") -> None:
+    conn.execute(
+        """
+        INSERT INTO conflicts(
+            id, project_id, conflict_key, conflict_type, title, description,
+            evidence_json, severity, status, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            conflict_id,
+            project_id,
+            "requirement:cache",
+            "requirement",
+            "缓存策略冲突",
+            "两份需求不一致",
+            to_json([{"fact_id": "fact_old"}, {"fact_id": "fact_new"}]),
+            "high",
+            "open",
+            now_iso(),
+        ),
+    )
+
+
 def test_dashboard_api_lists_sources_facts_and_blocks(tmp_path, monkeypatch):
     monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
     client = TestClient(app)
@@ -205,6 +229,49 @@ def test_requirement_snapshot_api_groups_current_and_superseded_requirements(tmp
     assert any(item["id"] == "fact_current" and item["lifecycle_label"] == "当前有效" for item in payload["current"])
     assert any(item["id"] == "fact_old" and item["lifecycle_label"] == "已被替代" for item in payload["superseded"])
     assert payload["source_statuses"]
+
+
+def test_conflict_decision_api_records_current_requirement_choice(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
+    client = TestClient(app)
+    project = create_project("Conflict Decision API Project")
+    with connect() as conn:
+        seed_source(conn, project["id"], "source_current", "docs/requirements_v2.md")
+        seed_source(conn, project["id"], "source_old", "docs/requirements_v1.md")
+        seed_requirement_fact(
+            conn,
+            project["id"],
+            "fact_new",
+            "支持离线缓存",
+            "source_current",
+            "docs/requirements_v2.md",
+        )
+        seed_requirement_fact(
+            conn,
+            project["id"],
+            "fact_old",
+            "不做离线缓存",
+            "source_old",
+            "docs/requirements_v1.md",
+        )
+        seed_requirement_conflict(conn, project["id"], "conf_1")
+        conn.commit()
+
+    response = client.post(
+        f"/api/projects/{project['id']}/conflicts/conf_1/decision",
+        json={
+            "action": "accept_fact",
+            "accepted_fact_id": "fact_new",
+            "superseded_fact_ids": ["fact_old"],
+            "reason": "新版方案覆盖旧版需求",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["action"] == "accept_fact"
+    snapshot = client.get(f"/api/projects/{project['id']}/requirements/snapshot").json()
+    assert any(item["id"] == "fact_new" for item in snapshot["current"])
+    assert any(item["id"] == "fact_old" for item in snapshot["superseded"])
 
 
 def test_fact_status_patch_preserves_lifecycle_fields_when_omitted(tmp_path, monkeypatch):

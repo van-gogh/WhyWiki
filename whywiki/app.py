@@ -28,7 +28,7 @@ from .services.collaboration import CollaborationService
 from .services.evidence import conflict_evidence, fact_evidence
 from .services.ingest import ingest_path
 from .services.jobs import create_job, get_job, start_background_job
-from .services.requirement_lifecycle import build_requirement_snapshot
+from .services.requirement_lifecycle import build_requirement_snapshot, record_requirement_decision
 from .services.wiki_engine import build_project
 from .services.workspace import create_project, delete_project, get_project, list_projects, update_project_tags
 
@@ -59,6 +59,15 @@ class AskRequest(BaseModel):
 
 class ConflictStatusRequest(BaseModel):
     status: str
+
+
+class RequirementDecisionRequest(BaseModel):
+    action: str
+    accepted_fact_id: str = ""
+    superseded_fact_ids: list[str] = Field(default_factory=list)
+    rejected_fact_ids: list[str] = Field(default_factory=list)
+    created_statement: str = ""
+    reason: str = ""
 
 
 class FactStatusRequest(BaseModel):
@@ -625,6 +634,24 @@ def api_update_conflict(project_id: str, conflict_id: str, req: ConflictStatusRe
         )
         conn.commit()
         return {"id": conflict_id, "status": req.status}
+
+
+@app.post("/api/projects/{project_id}/conflicts/{conflict_id}/decision")
+def api_record_requirement_decision(project_id: str, conflict_id: str, req: RequirementDecisionRequest) -> dict:
+    require_review_access_if_configured(project_id)
+    try:
+        return record_requirement_decision(
+            project_id,
+            conflict_id=conflict_id,
+            action=req.action,
+            accepted_fact_id=req.accepted_fact_id,
+            superseded_fact_ids=req.superseded_fact_ids,
+            rejected_fact_ids=req.rejected_fact_ids,
+            created_statement=req.created_statement,
+            reason=req.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/projects/{project_id}/handover", response_class=PlainTextResponse)

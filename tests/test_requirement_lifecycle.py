@@ -1,7 +1,7 @@
 import sqlite3
 
 from whywiki.db import init_db
-from whywiki.services.requirement_lifecycle import build_requirement_snapshot
+from whywiki.services.requirement_lifecycle import build_requirement_snapshot, record_requirement_decision
 from whywiki.utils import now_iso, to_json
 
 
@@ -51,6 +51,30 @@ def insert_requirement(
             now_iso(),
             validity_status,
             superseded_by_fact_id,
+            now_iso(),
+        ),
+    )
+
+
+def insert_requirement_conflict(conn: sqlite3.Connection, project_id: str, conflict_id: str = "conf_1") -> None:
+    conn.execute(
+        """
+        INSERT INTO conflicts(
+            id, project_id, conflict_key, conflict_type, title, description,
+            evidence_json, severity, status, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            conflict_id,
+            project_id,
+            "requirement:cache",
+            "requirement",
+            "缓存策略冲突",
+            "两份需求不一致",
+            to_json([{"fact_id": "fact_old"}, {"fact_id": "fact_new"}]),
+            "high",
+            "open",
             now_iso(),
         ),
     )
@@ -172,3 +196,39 @@ def test_snapshot_includes_recent_decisions_and_open_conflicts(tmp_path):
         "open_conflicts": 1,
         "sources": 1,
     }
+
+
+def test_accept_fact_decision_marks_winner_current_and_old_fact_superseded(tmp_path):
+    conn = sqlite3.connect(tmp_path / "whywiki.db")
+    conn.row_factory = sqlite3.Row
+    init_db(conn)
+    project_id = insert_project(conn)
+    insert_source(conn, project_id, "src_new", "docs/requirements_v2.md")
+    insert_source(conn, project_id, "src_old", "docs/requirements_v1.md")
+    insert_requirement(conn, project_id, "fact_new", "支持离线缓存", "src_new", "docs/requirements_v2.md")
+    insert_requirement(conn, project_id, "fact_old", "不做离线缓存", "src_old", "docs/requirements_v1.md")
+    insert_requirement_conflict(conn, project_id, "conf_1")
+    conn.commit()
+
+    decision = record_requirement_decision(
+        project_id,
+        conflict_id="conf_1",
+        action="accept_fact",
+        accepted_fact_id="fact_new",
+        superseded_fact_ids=["fact_old"],
+        rejected_fact_ids=[],
+        created_statement="",
+        reason="新版方案覆盖旧版需求",
+        conn=conn,
+    )
+
+    winner = conn.execute("SELECT * FROM facts WHERE project_id = ? AND id = ?", (project_id, "fact_new")).fetchone()
+    old = conn.execute("SELECT * FROM facts WHERE project_id = ? AND id = ?", (project_id, "fact_old")).fetchone()
+    conflict = conn.execute("SELECT * FROM conflicts WHERE project_id = ? AND id = ?", (project_id, "conf_1")).fetchone()
+
+    assert winner["status"] == "confirmed"
+    assert winner["validity_status"] == "current"
+    assert old["validity_status"] == "superseded"
+    assert old["superseded_by_fact_id"] == "fact_new"
+    assert conflict["status"] == "resolved"
+    assert decision["action"] == "accept_fact"

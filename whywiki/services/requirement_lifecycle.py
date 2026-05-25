@@ -4,12 +4,13 @@ import sqlite3
 from typing import Any
 
 from ..db import connect, rows_to_dicts
-from ..utils import from_json
+from ..utils import from_json, new_id, now_iso, to_json
 from .lifecycle_labels import decision_action_label, requirement_status_label, source_status_label
 
 OUTDATED_REQUIREMENT_STATUSES = {"superseded", "rejected", "historical"}
 ACTIVE_REQUIREMENT_STATUSES = {"current", "confirmed", "needs_review", "candidate"}
 SNAPSHOT_GROUPS = ("current", "needs_review", "superseded", "historical", "rejected", "conflicting")
+DECISION_ACTIONS = {"accept_fact", "merge_requirement", "mark_outdated", "leave_for_later", "ignore_conflict"}
 
 
 def row_value(row: sqlite3.Row | dict[str, Any], key: str, default: Any = None) -> Any:
@@ -116,6 +117,237 @@ def conflict_to_snapshot(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
     evidence = from_json(row_value(row, "evidence_json", "[]"), [])
     item["evidence"] = evidence if isinstance(evidence, list) else []
     return item
+
+
+def _unique_ids(ids: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for fact_id in ids:
+        fact_id = (fact_id or "").strip()
+        if fact_id and fact_id not in seen:
+            seen.add(fact_id)
+            unique.append(fact_id)
+    return unique
+
+
+def _ensure_distinct_roles(accepted_fact_id: str, superseded_ids: list[str], rejected_ids: list[str]) -> None:
+    role_ids = [fact_id for fact_id in [accepted_fact_id, *superseded_ids, *rejected_ids] if fact_id]
+    if len(role_ids) != len(set(role_ids)):
+        raise ValueError("Requirement fact ids cannot be repeated across decision roles")
+
+
+def _validate_requirement_facts(conn: sqlite3.Connection, project_id: str, fact_ids: list[str]) -> None:
+    if not fact_ids:
+        return
+    placeholders = ",".join("?" for _ in fact_ids)
+    rows = conn.execute(
+        f"""
+        SELECT id
+        FROM facts
+        WHERE project_id = ? AND fact_type = 'requirement' AND id IN ({placeholders})
+        """,
+        (project_id, *fact_ids),
+    ).fetchall()
+    found = {row["id"] for row in rows}
+    missing = [fact_id for fact_id in fact_ids if fact_id not in found]
+    if missing:
+        raise ValueError(f"Requirement fact not found for project: {', '.join(missing)}")
+
+
+def requirement_evidence(conn: sqlite3.Connection, project_id: str, fact_id: str) -> list[Any]:
+    row = conn.execute(
+        """
+        SELECT evidence_json
+        FROM facts
+        WHERE project_id = ? AND fact_type = 'requirement' AND id = ?
+        """,
+        (project_id, fact_id),
+    ).fetchone()
+    if not row:
+        raise ValueError(f"Requirement fact not found for project: {fact_id}")
+    evidence = from_json(row["evidence_json"], [])
+    return evidence if isinstance(evidence, list) else []
+
+
+def _merged_evidence(conn: sqlite3.Connection, project_id: str, fact_ids: list[str]) -> list[Any]:
+    merged: list[Any] = []
+    seen: set[str] = set()
+    for fact_id in fact_ids:
+        for evidence_item in requirement_evidence(conn, project_id, fact_id):
+            key = to_json(evidence_item)
+            if key not in seen:
+                seen.add(key)
+                merged.append(evidence_item)
+    return merged
+
+
+def create_merged_requirement(
+    conn: sqlite3.Connection,
+    project_id: str,
+    statement: str,
+    source_fact_ids: list[str],
+) -> str:
+    source_fact_ids = _unique_ids(source_fact_ids)
+    _validate_requirement_facts(conn, project_id, source_fact_ids)
+    now = now_iso()
+    fact_id = new_id("fact")
+    conn.execute(
+        """
+        INSERT INTO facts(
+            id, project_id, fact_type, statement, evidence_json, status, confidence,
+            created_at, validity_status, superseded_by_fact_id, review_note, updated_at
+        )
+        VALUES (?, ?, 'requirement', ?, ?, 'confirmed', 0.9, ?, 'current', '', '', ?)
+        """,
+        (fact_id, project_id, statement, to_json(_merged_evidence(conn, project_id, source_fact_ids)), now, now),
+    )
+    return fact_id
+
+
+def _ensure_conflict(conn: sqlite3.Connection, project_id: str, conflict_id: str) -> sqlite3.Row:
+    if not conflict_id:
+        raise ValueError("Conflict id is required")
+    row = conn.execute(
+        "SELECT * FROM conflicts WHERE project_id = ? AND id = ?",
+        (project_id, conflict_id),
+    ).fetchone()
+    if not row:
+        raise ValueError("Conflict not found")
+    return row
+
+
+def record_requirement_decision(
+    project_id: str,
+    conflict_id: str,
+    action: str,
+    accepted_fact_id: str = "",
+    superseded_fact_ids: list[str] | None = None,
+    rejected_fact_ids: list[str] | None = None,
+    created_statement: str = "",
+    reason: str = "",
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any]:
+    if action not in DECISION_ACTIONS:
+        raise ValueError("Invalid requirement decision action")
+
+    close = conn is None
+    conn = conn or connect()
+    try:
+        conflict = _ensure_conflict(conn, project_id, conflict_id)
+        accepted_fact_id = accepted_fact_id.strip()
+        superseded_ids = _unique_ids(superseded_fact_ids or [])
+        rejected_ids = _unique_ids(rejected_fact_ids or [])
+        _ensure_distinct_roles(accepted_fact_id, superseded_ids, rejected_ids)
+        target_ids = _unique_ids([accepted_fact_id, *superseded_ids, *rejected_ids])
+        created_fact_id = ""
+        note = reason.strip()
+        now = now_iso()
+
+        if action == "accept_fact":
+            if not accepted_fact_id:
+                raise ValueError("accept_fact requires accepted_fact_id")
+            _validate_requirement_facts(conn, project_id, target_ids)
+            cursor = conn.execute(
+                """
+                UPDATE facts
+                SET status = 'confirmed', validity_status = 'current', superseded_by_fact_id = '',
+                    review_note = ?, updated_at = ?
+                WHERE project_id = ? AND id = ?
+                """,
+                (note, now, project_id, accepted_fact_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("Accepted requirement fact was not updated")
+            for fact_id in superseded_ids:
+                conn.execute(
+                    """
+                    UPDATE facts
+                    SET status = 'confirmed', validity_status = 'superseded', superseded_by_fact_id = ?,
+                        review_note = ?, updated_at = ?
+                    WHERE project_id = ? AND id = ?
+                    """,
+                    (accepted_fact_id, note, now, project_id, fact_id),
+                )
+
+        elif action == "merge_requirement":
+            if not created_statement.strip():
+                raise ValueError("merge_requirement requires created_statement")
+            source_fact_ids = target_ids
+            if not source_fact_ids:
+                raise ValueError("merge_requirement requires source facts")
+            created_fact_id = create_merged_requirement(conn, project_id, created_statement.strip(), source_fact_ids)
+            for fact_id in source_fact_ids:
+                conn.execute(
+                    """
+                    UPDATE facts
+                    SET status = 'confirmed', validity_status = 'superseded', superseded_by_fact_id = ?,
+                        review_note = ?, updated_at = ?
+                    WHERE project_id = ? AND id = ?
+                    """,
+                    (created_fact_id, note, now, project_id, fact_id),
+                )
+
+        elif action == "mark_outdated":
+            if not target_ids:
+                raise ValueError("mark_outdated requires target facts")
+            _validate_requirement_facts(conn, project_id, target_ids)
+            for fact_id in target_ids:
+                conn.execute(
+                    """
+                    UPDATE facts
+                    SET status = 'rejected', validity_status = 'historical', superseded_by_fact_id = '',
+                        review_note = ?, updated_at = ?
+                    WHERE project_id = ? AND id = ?
+                    """,
+                    (note, now, project_id, fact_id),
+                )
+
+        elif action in {"leave_for_later", "ignore_conflict"}:
+            _validate_requirement_facts(conn, project_id, target_ids)
+
+        evidence = _merged_evidence(conn, project_id, target_ids) if target_ids else conflict_to_snapshot(conflict)["evidence"]
+        if action != "leave_for_later":
+            next_status = "ignored" if action == "ignore_conflict" else "resolved"
+            conn.execute(
+                "UPDATE conflicts SET status = ? WHERE project_id = ? AND id = ?",
+                (next_status, project_id, conflict_id),
+            )
+
+        decision_id = new_id("decision")
+        conn.execute(
+            """
+            INSERT INTO requirement_decisions(
+                id, project_id, conflict_id, action, accepted_fact_id, created_fact_id,
+                superseded_fact_ids_json, rejected_fact_ids_json, reason, evidence_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                decision_id,
+                project_id,
+                conflict_id,
+                action,
+                accepted_fact_id,
+                created_fact_id,
+                to_json(superseded_ids),
+                to_json(rejected_ids),
+                note,
+                to_json(evidence),
+                now,
+            ),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM requirement_decisions WHERE project_id = ? AND id = ?",
+            (project_id, decision_id),
+        ).fetchone()
+        return dict(row)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        if close:
+            conn.close()
 
 
 def build_requirement_snapshot(
