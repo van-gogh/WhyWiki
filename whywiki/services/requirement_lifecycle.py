@@ -13,6 +13,10 @@ SNAPSHOT_GROUPS = ("current", "needs_review", "superseded", "historical", "rejec
 DECISION_ACTIONS = {"accept_fact", "merge_requirement", "mark_outdated", "leave_for_later", "ignore_conflict"}
 
 
+class RequirementLifecycleNotFound(ValueError):
+    pass
+
+
 def row_value(row: sqlite3.Row | dict[str, Any], key: str, default: Any = None) -> Any:
     if isinstance(row, dict):
         return row.get(key, default)
@@ -130,6 +134,14 @@ def _unique_ids(ids: list[str]) -> list[str]:
     return unique
 
 
+def _normalized_ids(ids: list[str], label: str) -> list[str]:
+    normalized = [(fact_id or "").strip() for fact_id in ids]
+    normalized = [fact_id for fact_id in normalized if fact_id]
+    if len(normalized) != len(set(normalized)):
+        raise ValueError(f"Duplicate requirement fact ids in {label}")
+    return normalized
+
+
 def _ensure_distinct_roles(accepted_fact_id: str, superseded_ids: list[str], rejected_ids: list[str]) -> None:
     role_ids = [fact_id for fact_id in [accepted_fact_id, *superseded_ids, *rejected_ids] if fact_id]
     if len(role_ids) != len(set(role_ids)):
@@ -164,7 +176,7 @@ def requirement_evidence(conn: sqlite3.Connection, project_id: str, fact_id: str
         (project_id, fact_id),
     ).fetchone()
     if not row:
-        raise ValueError(f"Requirement fact not found for project: {fact_id}")
+        raise RequirementLifecycleNotFound(f"Requirement fact not found for project: {fact_id}")
     evidence = from_json(row["evidence_json"], [])
     return evidence if isinstance(evidence, list) else []
 
@@ -212,8 +224,29 @@ def _ensure_conflict(conn: sqlite3.Connection, project_id: str, conflict_id: str
         (project_id, conflict_id),
     ).fetchone()
     if not row:
-        raise ValueError("Conflict not found")
+        raise RequirementLifecycleNotFound("Conflict not found")
     return row
+
+
+def _update_rejected_facts(
+    conn: sqlite3.Connection,
+    project_id: str,
+    fact_ids: list[str],
+    note: str,
+    now: str,
+) -> None:
+    for fact_id in fact_ids:
+        cursor = conn.execute(
+            """
+            UPDATE facts
+            SET status = 'rejected', validity_status = 'historical', superseded_by_fact_id = '',
+                review_note = ?, updated_at = ?
+            WHERE project_id = ? AND id = ?
+            """,
+            (note, now, project_id, fact_id),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError(f"Rejected requirement fact was not updated: {fact_id}")
 
 
 def record_requirement_decision(
@@ -230,13 +263,15 @@ def record_requirement_decision(
     if action not in DECISION_ACTIONS:
         raise ValueError("Invalid requirement decision action")
 
-    close = conn is None
+    owns_connection = conn is None
     conn = conn or connect()
+    savepoint_name = new_id("requirement_decision")
+    conn.execute(f"SAVEPOINT {savepoint_name}")
     try:
         conflict = _ensure_conflict(conn, project_id, conflict_id)
         accepted_fact_id = accepted_fact_id.strip()
-        superseded_ids = _unique_ids(superseded_fact_ids or [])
-        rejected_ids = _unique_ids(rejected_fact_ids or [])
+        superseded_ids = _normalized_ids(superseded_fact_ids or [], "superseded_fact_ids")
+        rejected_ids = _normalized_ids(rejected_fact_ids or [], "rejected_fact_ids")
         _ensure_distinct_roles(accepted_fact_id, superseded_ids, rejected_ids)
         target_ids = _unique_ids([accepted_fact_id, *superseded_ids, *rejected_ids])
         created_fact_id = ""
@@ -268,13 +303,15 @@ def record_requirement_decision(
                     """,
                     (accepted_fact_id, note, now, project_id, fact_id),
                 )
+            _update_rejected_facts(conn, project_id, rejected_ids, note, now)
 
         elif action == "merge_requirement":
             if not created_statement.strip():
                 raise ValueError("merge_requirement requires created_statement")
-            source_fact_ids = target_ids
+            source_fact_ids = _unique_ids([accepted_fact_id, *superseded_ids])
             if not source_fact_ids:
                 raise ValueError("merge_requirement requires source facts")
+            _validate_requirement_facts(conn, project_id, [*source_fact_ids, *rejected_ids])
             created_fact_id = create_merged_requirement(conn, project_id, created_statement.strip(), source_fact_ids)
             for fact_id in source_fact_ids:
                 conn.execute(
@@ -286,21 +323,13 @@ def record_requirement_decision(
                     """,
                     (created_fact_id, note, now, project_id, fact_id),
                 )
+            _update_rejected_facts(conn, project_id, rejected_ids, note, now)
 
         elif action == "mark_outdated":
             if not target_ids:
                 raise ValueError("mark_outdated requires target facts")
             _validate_requirement_facts(conn, project_id, target_ids)
-            for fact_id in target_ids:
-                conn.execute(
-                    """
-                    UPDATE facts
-                    SET status = 'rejected', validity_status = 'historical', superseded_by_fact_id = '',
-                        review_note = ?, updated_at = ?
-                    WHERE project_id = ? AND id = ?
-                    """,
-                    (note, now, project_id, fact_id),
-                )
+            _update_rejected_facts(conn, project_id, target_ids, note, now)
 
         elif action in {"leave_for_later", "ignore_conflict"}:
             _validate_requirement_facts(conn, project_id, target_ids)
@@ -336,17 +365,20 @@ def record_requirement_decision(
                 now,
             ),
         )
-        conn.commit()
         row = conn.execute(
             "SELECT * FROM requirement_decisions WHERE project_id = ? AND id = ?",
             (project_id, decision_id),
         ).fetchone()
+        conn.execute(f"RELEASE SAVEPOINT {savepoint_name}")
+        if owns_connection:
+            conn.commit()
         return dict(row)
     except Exception:
-        conn.rollback()
+        conn.execute(f"ROLLBACK TO SAVEPOINT {savepoint_name}")
+        conn.execute(f"RELEASE SAVEPOINT {savepoint_name}")
         raise
     finally:
-        if close:
+        if owns_connection:
             conn.close()
 
 

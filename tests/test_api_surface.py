@@ -274,6 +274,50 @@ def test_conflict_decision_api_records_current_requirement_choice(tmp_path, monk
     assert any(item["id"] == "fact_old" for item in snapshot["superseded"])
 
 
+def test_conflict_decision_api_rejects_duplicate_target_ids(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
+    client = TestClient(app)
+    project = create_project("Duplicate Decision API Project")
+    with connect() as conn:
+        seed_source(conn, project["id"], "source_current", "docs/requirements_v2.md")
+        seed_source(conn, project["id"], "source_old", "docs/requirements_v1.md")
+        seed_requirement_fact(conn, project["id"], "fact_new", "支持离线缓存", "source_current", "docs/requirements_v2.md")
+        seed_requirement_fact(conn, project["id"], "fact_old", "不做离线缓存", "source_old", "docs/requirements_v1.md")
+        seed_requirement_conflict(conn, project["id"], "conf_1")
+        conn.commit()
+
+    response = client.post(
+        f"/api/projects/{project['id']}/conflicts/conf_1/decision",
+        json={
+            "action": "accept_fact",
+            "accepted_fact_id": "fact_new",
+            "superseded_fact_ids": ["fact_old", "fact_old"],
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_conflict_decision_api_returns_404_for_missing_conflict(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
+    client = TestClient(app)
+    project = create_project("Missing Conflict Decision API Project")
+    with connect() as conn:
+        seed_source(conn, project["id"], "source_current", "docs/requirements_v2.md")
+        seed_requirement_fact(conn, project["id"], "fact_new", "支持离线缓存", "source_current", "docs/requirements_v2.md")
+        conn.commit()
+
+    response = client.post(
+        f"/api/projects/{project['id']}/conflicts/missing_conflict/decision",
+        json={
+            "action": "accept_fact",
+            "accepted_fact_id": "fact_new",
+        },
+    )
+
+    assert response.status_code == 404
+
+
 def test_fact_status_patch_preserves_lifecycle_fields_when_omitted(tmp_path, monkeypatch):
     monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
     client = TestClient(app)

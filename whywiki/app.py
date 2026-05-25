@@ -28,7 +28,11 @@ from .services.collaboration import CollaborationService
 from .services.evidence import conflict_evidence, fact_evidence
 from .services.ingest import ingest_path
 from .services.jobs import create_job, get_job, start_background_job
-from .services.requirement_lifecycle import build_requirement_snapshot, record_requirement_decision
+from .services.requirement_lifecycle import (
+    RequirementLifecycleNotFound,
+    build_requirement_snapshot,
+    record_requirement_decision,
+)
 from .services.wiki_engine import build_project
 from .services.workspace import create_project, delete_project, get_project, list_projects, update_project_tags
 
@@ -650,6 +654,8 @@ def api_record_requirement_decision(project_id: str, conflict_id: str, req: Requ
             created_statement=req.created_statement,
             reason=req.reason,
         )
+    except RequirementLifecycleNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
