@@ -6,7 +6,7 @@ from whywiki.collaboration.models import EvidencePointer as ProviderEvidencePoin
 from whywiki.db import connect, init_db
 from whywiki.services.ask import ask_project
 from whywiki.services.ingest import ingest_path
-from whywiki.services.wiki_engine import build_project
+from whywiki.services.wiki_engine import build_project, build_wiki_pages
 from whywiki.services.workspace import create_project
 from whywiki.utils import now_iso, to_json
 
@@ -18,6 +18,208 @@ def build_messy_fixture(tmp_path, monkeypatch):
     ingest_path(project["id"], root)
     build_project(project["id"])
     return project
+
+
+def seed_requirement_snapshot_project(tmp_path, monkeypatch):
+    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
+    conn = connect(tmp_path / "whywiki.db")
+    init_db(conn)
+    project = create_project("Requirement Snapshot Demo", conn=conn)
+    now = now_iso()
+    sources = [
+        ("src_current", "docs/requirements_v2.md"),
+        ("src_old", "docs/requirements_v1.md"),
+        ("src_login", "docs/login_requirements.md"),
+    ]
+    for source_id, path in sources:
+        conn.execute(
+            """
+            INSERT INTO sources(id, project_id, source_type, path, title, content_hash, metadata_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (source_id, project["id"], "local", path, path, f"hash-{source_id}", to_json({}), now, now),
+        )
+    facts = [
+        (
+            "fact_current",
+            "移动端必须支持离线缓存当前项目记忆。",
+            "src_current",
+            "docs/requirements_v2.md",
+            "confirmed",
+            "current",
+            "",
+        ),
+        (
+            "fact_old",
+            "移动端暂不支持离线缓存。",
+            "src_old",
+            "docs/requirements_v1.md",
+            "confirmed",
+            "superseded",
+            "fact_current",
+        ),
+        (
+            "fact_login",
+            "登录必须支持 GitHub Device Flow。",
+            "src_login",
+            "docs/login_requirements.md",
+            "candidate",
+            "unknown",
+            "",
+        ),
+    ]
+    for fact_id, statement, source_id, path, status, validity, superseded_by in facts:
+        conn.execute(
+            """
+            INSERT INTO facts(
+                id, project_id, fact_type, statement, evidence_json, status, confidence,
+                created_at, validity_status, superseded_by_fact_id, review_note, updated_at
+            )
+            VALUES (?, ?, 'requirement', ?, ?, ?, 0.9, ?, ?, ?, '', ?)
+            """,
+            (
+                fact_id,
+                project["id"],
+                statement,
+                to_json([{"source_id": source_id, "path": path}]),
+                status,
+                now,
+                validity,
+                superseded_by,
+                now,
+            ),
+        )
+    conn.commit()
+    return conn, project
+
+
+def test_requirements_wiki_uses_current_requirement_snapshot(tmp_path, monkeypatch):
+    conn, project = seed_requirement_snapshot_project(tmp_path, monkeypatch)
+
+    pages = build_wiki_pages(project["id"], conn)
+    content = pages["requirements"]
+
+    assert "# 当前需求快照" in content
+    assert "## 当前有效" in content
+    assert "## 已被替代" in content
+    assert "移动端必须支持离线缓存当前项目记忆。" in content
+    assert "移动端暂不支持离线缓存。" in content
+    assert "状态：当前有效" in content
+    assert "状态：已被替代" in content
+    assert "证据：`docs/requirements_v2.md`" in content
+    assert "替代者：`fact_current`" in content
+
+
+def test_generated_wiki_localizes_fact_and_conflict_status_labels(tmp_path, monkeypatch):
+    conn, project = seed_requirement_snapshot_project(tmp_path, monkeypatch)
+    now = now_iso()
+    conn.execute(
+        """
+        INSERT INTO facts(
+            id, project_id, fact_type, statement, evidence_json, status, confidence,
+            created_at, validity_status, superseded_by_fact_id, review_note, updated_at
+        )
+        VALUES (?, ?, 'code', ?, ?, 'candidate', 0.82, ?, 'unknown', '', '', ?)
+        """,
+        (
+            "fact_code_candidate",
+            project["id"],
+            "代码入口是 `whywiki/app.py`。",
+            to_json([{"source_id": "src_current", "path": "whywiki/app.py"}]),
+            now,
+            now,
+        ),
+    )
+    conn.execute(
+        """
+        INSERT INTO conflicts(
+            id, project_id, conflict_key, conflict_type, title, description,
+            evidence_json, severity, status, created_at
+        )
+        VALUES (?, ?, ?, 'requirement_conflict', ?, ?, ?, 'medium', 'open', ?)
+        """,
+        (
+            "conf_requirement_medium",
+            project["id"],
+            "requirement_conflict:demo",
+            "登录方式需要确认",
+            "旧文档和新文档对登录方式描述不一致。",
+            to_json([{"path": "docs/login_requirements.md"}]),
+            now,
+        ),
+    )
+    conn.commit()
+
+    pages = build_wiki_pages(project["id"], conn)
+    fact_page = pages["architecture"]
+    conflict_page = pages["conflicts"]
+    requirement_page = pages["requirements"]
+    handover_page = pages["handover"]
+
+    assert "状态：待确认，有效性：待判断，置信度：0.82" in fact_page
+    assert "证据：`whywiki/app.py`" in fact_page
+    assert "类型：需求冲突" in conflict_page
+    assert "严重程度：中风险" in conflict_page
+    assert "状态：待处理" in conflict_page
+    assert "**登录方式需要确认**（中风险）" in requirement_page
+    assert "**登录方式需要确认**（中风险）" in handover_page
+    assert "高风险 / 中风险冲突" in handover_page
+
+    for content in (fact_page, conflict_page, requirement_page, handover_page):
+        assert "状态：candidate" not in content
+        assert "有效性：unknown" not in content
+        assert "严重程度：medium" not in content
+        assert "状态：open" not in content
+        assert "类型：requirement_conflict" not in content
+        assert "high/medium" not in content
+
+
+def test_ask_current_requirement_answer_explains_superseded_history(tmp_path, monkeypatch):
+    conn, project = seed_requirement_snapshot_project(tmp_path, monkeypatch)
+
+    result = ask_project(project["id"], "当前需求是什么？", conn=conn)
+
+    assert "当前有效需求如下" in result["answer"]
+    assert "移动端必须支持离线缓存当前项目记忆。" in result["answer"]
+    assert "状态：当前有效" in result["answer"]
+    assert "历史材料中还有以下已被替代的需求" in result["answer"]
+    assert "移动端暂不支持离线缓存。" in result["answer"]
+    assert "不是当前执行依据" in result["answer"]
+    assert result["evidence"] == [{"kind": "fact", "id": "fact_current", "path": "docs/requirements_v2.md", "score": 0.9}]
+
+
+def test_ask_specific_requirement_question_uses_evidence_retrieval_not_current_snapshot(tmp_path, monkeypatch):
+    conn, project = seed_requirement_snapshot_project(tmp_path, monkeypatch)
+
+    result = ask_project(project["id"], "登录需求是什么？", conn=conn)
+
+    assert "当前有效需求如下" not in result["answer"]
+    assert "登录必须支持 GitHub Device Flow。" in result["answer"]
+    assert "状态：候选需求" in result["answer"]
+    assert "证据：`docs/login_requirements.md`" in result["answer"]
+    assert result["evidence"]
+    assert result["evidence"][0]["id"] == "fact_login"
+    assert result["evidence"][0]["path"] == "docs/login_requirements.md"
+
+
+def test_ask_generic_requirement_question_uses_current_snapshot(tmp_path, monkeypatch):
+    conn, project = seed_requirement_snapshot_project(tmp_path, monkeypatch)
+
+    result = ask_project(project["id"], "需求是什么？", conn=conn)
+
+    assert "当前有效需求如下" in result["answer"]
+    assert "移动端必须支持离线缓存当前项目记忆。" in result["answer"]
+    assert "状态：当前有效" in result["answer"]
+
+
+def test_ask_requirement_evidence_marks_superseded_hits_as_not_current(tmp_path, monkeypatch):
+    conn, project = seed_requirement_snapshot_project(tmp_path, monkeypatch)
+
+    result = ask_project(project["id"], "暂不支持离线缓存", conn=conn)
+
+    assert "移动端暂不支持离线缓存。" in result["answer"]
+    assert "状态：已被替代" in result["answer"]
+    assert "不是当前执行依据" in result["answer"]
 
 
 def test_ask_returns_structured_evidence(tmp_path, monkeypatch):
@@ -168,6 +370,9 @@ def test_ask_returns_detected_conflicts_for_conflict_question(tmp_path, monkeypa
     assert any(item["kind"] == "conflict" for item in result["evidence"])
     assert "当前检测到以下待审查冲突" in result["answer"]
     assert "多个材料都声称自己是最新版或最终版" in result["answer"]
+    assert "风险" in result["answer"]
+    assert "（medium）" not in result["answer"]
+    assert "（high）" not in result["answer"]
     assert "证据" in result["answer"]
 
 

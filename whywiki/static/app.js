@@ -35,6 +35,10 @@ function t(key) {
   return dictionary()[key] || key;
 }
 
+function currentLanguage() {
+  return normalizeLanguage(document.documentElement.lang);
+}
+
 function storageGet(key) {
   try {
     return localStorage.getItem(key);
@@ -1388,16 +1392,15 @@ function requirementStatusKind(row) {
   if (!evidenceItems(row).length) return "low-confidence";
   if (row.status === "needs_review" || row.status === "candidate") return "needs-review";
   if (row.status === "confirmed" || row.validity_status === "current") return "confirmed";
+  if (row.validity_status === "superseded") return "superseded";
+  if (row.validity_status === "rejected") return "rejected";
+  if (row.validity_status === "historical") return "historical";
   return "source-backed";
 }
 
 function requirementStatusLabel(row) {
-  const kind = requirementStatusKind(row);
-  if (kind === "conflict") return t("badge.conflict");
-  if (kind === "needs-review") return t("badge.needsReview");
-  if (kind === "confirmed") return t("badge.confirmed");
-  if (kind === "low-confidence") return t("badge.lowConfidence");
-  return t("badge.sourceBacked");
+  const status = requirementLifecycleStatus(row);
+  return t(`requirement.status.${status}`);
 }
 
 function requirementSourceCount(row) {
@@ -1428,6 +1431,46 @@ function visibleRequirementRows(rows = [], filters = new Set(["all"])) {
     const recentMatch = filters.has("recent") && Boolean(row.updated_at || row.recent || row.recently_touched);
     return statusMatch || sourceMatch || recentMatch;
   });
+}
+
+function lifecycleKey(status = "") {
+  if (status === "needs_review") return "needsReview";
+  if (status === "partially_outdated") return "partiallyOutdated";
+  if (status === "reference_only") return "referenceOnly";
+  return status || "";
+}
+
+function requirementLifecycleStatus(fact = {}) {
+  const lifecycleStatus = lifecycleKey(fact.lifecycle_status || fact.lifecycleStatus);
+  if (lifecycleStatus) return lifecycleStatus;
+  const validityStatus = fact.validity_status || fact.validityStatus;
+  if (validityStatus === "current") return "current";
+  if (validityStatus === "superseded") return "superseded";
+  if (validityStatus === "rejected") return "rejected";
+  if (validityStatus === "historical") return "historical";
+  if (validityStatus === "conflicting") return "conflicting";
+  if (fact.status === "candidate") return "candidate";
+  if (fact.status === "confirmed") return "confirmed";
+  if (fact.status === "needs_review") return "needsReview";
+  if (fact.status === "rejected") return "rejected";
+  return "current";
+}
+
+function sourceMemoryStatusLabel(status = "active") {
+  const normalized = lifecycleKey(status);
+  return t(`source.status.${normalized}`);
+}
+
+function conflictSeverityLabel(severity = "medium") {
+  const known = new Set(["high", "medium", "low"]);
+  const normalized = known.has(severity) ? severity : "unknown";
+  return t(`conflict.severity.${normalized}`);
+}
+
+function conflictStatusLabel(conflict = {}) {
+  const known = new Set(["open", "resolved", "ignored"]);
+  const normalized = known.has(conflict.status) ? conflict.status : "unknown";
+  return t(`conflict.status.${normalized}`);
 }
 
 function evidenceItems(row) {
@@ -2110,6 +2153,62 @@ async function renderSources(projectId) {
   return panel;
 }
 
+async function loadRequirementSnapshot(projectId) {
+  const currentLang = currentLanguage();
+  return api(`/api/projects/${projectId}/requirements/snapshot?language=${encodeURIComponent(currentLang)}`);
+}
+
+function renderRequirementSnapshot(snapshot = {}) {
+  const wrapper = createElement("div", "requirement-snapshot");
+  const groups = [
+    ["current", "requirement.status.current"],
+    ["needs_review", "requirement.status.needsReview"],
+    ["superseded", "requirement.status.superseded"],
+    ["historical", "requirement.status.historical"],
+  ];
+  groups.forEach(([key, labelKey]) => {
+    const rows = snapshot[key] || [];
+    const section = createElement("section", `requirement-snapshot-section requirement-snapshot-${key}`);
+    section.append(createElement("h3", "", t(labelKey)));
+    if (rows.length) {
+      const grid = createElement("div", "fact-grid");
+      rows.forEach((fact) => grid.append(renderFactCard(fact)));
+      section.append(grid);
+    } else {
+      section.append(createElement("p", "muted", t("view.empty")));
+    }
+    wrapper.append(section);
+  });
+
+  const sourceStatuses = snapshotSourceStatuses(snapshot);
+  if (sourceStatuses.length) {
+    const section = createElement("section", "requirement-snapshot-section requirement-snapshot-sources");
+    section.append(createElement("h3", "", t("status.recent")));
+    section.append(renderSourceStatusCards(sourceStatuses));
+    wrapper.append(section);
+  }
+  return wrapper;
+}
+
+function snapshotSourceStatuses(snapshot = {}) {
+  return Array.isArray(snapshot.source_statuses) ? snapshot.source_statuses : Object.values(snapshot.source_statuses || {});
+}
+
+function renderSourceStatusCards(sourceStatuses = []) {
+  const grid = createElement("div", "source-status-grid");
+  sourceStatuses.forEach((source) => {
+    const card = createElement("article", "record-card source-status-card");
+    const status = source.status || "active";
+    card.append(
+      createElement("strong", "", source.title || source.path || source.source_id || t("view.sources.title")),
+      createElement("span", `source-status source-status-${status}`, sourceMemoryStatusLabel(status))
+    );
+    if (source.path) card.append(createElement("p", "source-path", source.path));
+    grid.append(card);
+  });
+  return grid;
+}
+
 async function renderFacts(projectId) {
   const facts = await api(`/api/projects/${projectId}/facts`);
   const panel = createPanel(t("view.requirements.title"));
@@ -2327,15 +2426,11 @@ async function renderRequirements(projectId) {
 }
 
 function factStatusKind(fact) {
-  if (fact.validity_status === "conflicting" || fact.status === "needs_review") return "review";
-  if (fact.validity_status === "current" || fact.status === "confirmed") return "evidence";
-  return "";
+  return requirementLifecycleStatus(fact);
 }
 
 function factStatusLabel(fact) {
-  if (fact.validity_status === "conflicting" || fact.status === "needs_review") return t("status.needsReview");
-  if (fact.validity_status === "current" || fact.status === "confirmed") return t("status.evidence");
-  return t("status.stable");
+  return requirementStatusLabel(fact);
 }
 
 async function updateFactStatus(factId, status) {
@@ -2540,19 +2635,21 @@ async function renderProjectHome(projectId) {
 }
 
 async function renderStatus(projectId) {
-  const [sources, facts, conflicts, pages] = await Promise.all([
+  const [sources, facts, conflicts, pages, snapshot] = await Promise.all([
     api(`/api/projects/${projectId}/sources`),
     api(`/api/projects/${projectId}/facts`),
     api(`/api/projects/${projectId}/conflicts`),
     api(`/api/projects/${projectId}/wiki`),
+    loadRequirementSnapshot(projectId),
   ]);
   const state = deriveProjectState({ sources, facts, conflicts, pages });
   const panel = createPanel(t("status.title"));
   panel.prepend(renderProjectStatusHero(currentProject, state));
   panel.append(renderNextActionPanel(state), renderOnboardingSteps(state), createWorkspaceActions());
 
-  if (facts.length) {
-    appendSection(panel, t("status.current"), renderStateCards(facts, 8));
+  const currentRequirements = snapshot.current || [];
+  if (currentRequirements.length) {
+    appendSection(panel, t("status.current"), renderStateCards(currentRequirements, 8));
   } else {
     appendSection(panel, t("status.current"), renderEmptyState({
       title: t("empty.facts.title"),
@@ -2562,7 +2659,10 @@ async function renderStatus(projectId) {
       kind: "facts",
     }));
   }
-  if (sources.length) {
+  const sourceStatuses = snapshotSourceStatuses(snapshot);
+  if (sourceStatuses.length) {
+    appendSection(panel, t("status.recent"), renderSourceStatusCards(sourceStatuses));
+  } else if (sources.length) {
     appendSection(panel, t("status.recent"), renderRecentSources(sources));
   } else {
     appendSection(panel, t("status.recent"), renderEmptyState({
@@ -2573,11 +2673,13 @@ async function renderStatus(projectId) {
       kind: "sources",
     }));
   }
-  if (conflicts.length) {
+  const openConflicts = snapshot.open_conflicts || conflicts.filter((conflict) => conflict.status === "open");
+  if (openConflicts.length) {
     const reviewGrid = document.createElement("div");
     reviewGrid.className = "state-grid";
-    conflicts.slice(0, 4).forEach((conflict) => {
-      reviewGrid.append(renderConflictCard(conflict));
+    const requirements = snapshotRequirements(snapshot);
+    openConflicts.slice(0, 4).forEach((conflict) => {
+      reviewGrid.append(renderConflictCard(conflict, requirements));
     });
     appendSection(panel, t("status.review"), reviewGrid);
   } else {
@@ -2591,7 +2693,10 @@ async function renderStatus(projectId) {
 }
 
 async function renderConflicts(projectId) {
-  const conflicts = await api(`/api/projects/${projectId}/conflicts`);
+  const [conflicts, snapshot] = await Promise.all([
+    api(`/api/projects/${projectId}/conflicts`),
+    loadRequirementSnapshot(projectId),
+  ]);
   const panel = createPanel(t("view.conflicts.title"));
   if (!conflicts.length) {
     panel.append(renderEmptyState({
@@ -2602,7 +2707,8 @@ async function renderConflicts(projectId) {
     return panel;
   }
   const grid = createElement("div", "conflict-grid");
-  conflicts.forEach((conflict) => grid.append(renderConflictCard(conflict)));
+  const requirements = snapshotRequirements(snapshot);
+  conflicts.forEach((conflict) => grid.append(renderConflictCard(conflict, requirements)));
   panel.append(grid);
   return panel;
 }
@@ -2617,23 +2723,79 @@ async function updateConflictStatus(conflictId, status) {
   await loadView("review");
 }
 
-function renderConflictCard(conflict) {
-  const card = createElement("article", `conflict-card conflict-card-${conflict.severity || "medium"}`);
+async function submitRequirementDecision(conflictId, payload) {
   const projectId = requireProject();
-  const conflictId = conflict.id;
-  const header = createElement("header", "card-header");
-  const title = createElement("strong", "", conflict.title || t("view.conflicts.title"));
-  const badges = createElement("div", "badge-row");
-  badges.append(
-    renderStatusBadge(t("badge.conflict"), "conflict"),
-    renderStatusBadge(fieldValue(conflict.severity), conflict.severity || "medium"),
-    renderStatusBadge(fieldValue(conflict.status), conflict.status || "open")
-  );
-  header.append(title, badges);
-  const description = createElement("p", "", conflict.description || "-");
-  const evidence = evidenceItems(conflict);
-  const actions = createElement("div", "actions");
-  const resolve = createActionButton(t("action.resolveConflict"), "primary", () => {
+  if (!projectId) return null;
+  return api(`/api/projects/${projectId}/conflicts/${conflictId}/decision`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+function snapshotRequirements(snapshot = {}) {
+  return ["current", "needs_review", "superseded", "historical", "rejected", "conflicting"]
+    .flatMap((key) => snapshot[key] || []);
+}
+
+function selectableRequirementOptions(requirements = []) {
+  const selectable = new Set(["candidate", "needsReview", "confirmed", "current", "conflicting"]);
+  return requirements.filter((item) => selectable.has(requirementLifecycleStatus(item)));
+}
+
+function renderRequirementSelect(requirements, labelText, multiple = false) {
+  const label = document.createElement("label");
+  const text = createElement("span", "", labelText);
+  const select = document.createElement("select");
+  if (multiple) select.multiple = true;
+  if (!multiple) {
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = t("view.empty");
+    select.append(empty);
+  }
+  selectableRequirementOptions(requirements).forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = `${requirementStatusLabel(item)} · ${item.statement || item.id}`;
+    select.append(option);
+  });
+  label.append(text, select);
+  return { label, select };
+}
+
+function selectedOptions(select) {
+  return Array.from(select.selectedOptions).map((option) => option.value).filter(Boolean);
+}
+
+function rowEvidenceItems(row) {
+  if (Array.isArray(row?.evidence)) return row.evidence.filter((item) => item && typeof item === "object");
+  return evidenceItems(row);
+}
+
+function evidenceOverlaps(conflictEvidence, requirementEvidence) {
+  if (conflictEvidence.fact_id) return false;
+  return ["block_id", "source_id", "path"].some((key) => conflictEvidence[key] && conflictEvidence[key] === requirementEvidence[key]);
+}
+
+function requirementsForConflict(conflict, requirements = []) {
+  if (!isRequirementConflict(conflict)) return [];
+  const conflictEvidence = rowEvidenceItems(conflict);
+  const directIds = new Set(conflictEvidence.map((item) => item.fact_id).filter(Boolean).map(String));
+  return requirements.filter((requirement) => {
+    if (directIds.has(String(requirement.id))) return true;
+    const requirementEvidence = rowEvidenceItems(requirement);
+    return conflictEvidence.some((conflictItem) =>
+      requirementEvidence.some((requirementItem) => evidenceOverlaps(conflictItem, requirementItem))
+    );
+  });
+}
+
+function isRequirementConflict(conflict = {}) {
+  return ["requirement", "requirement_conflict"].includes(conflict.conflict_type);
+}
+
+function renderLegacyConflictActions(conflict, actions) {
+  const resolve = createActionButton(t("action.resolveConflict"), "secondary", () => {
     actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
     updateConflictStatus(conflict.id, "resolved").catch((error) => {
       actions.replaceChildren(renderOperationFeedback("error", t("view.error"), error.message));
@@ -2649,7 +2811,106 @@ function renderConflictCard(conflict) {
     resolve.disabled = true;
     ignore.disabled = true;
   }
-  actions.append(resolve, ignore);
+  return [resolve, ignore];
+}
+
+function renderConflictDecisionControls(conflict, actions, requirements = []) {
+  const controls = createElement("div", "decision-controls");
+  const accepted = renderRequirementSelect(requirements, t("action.acceptAsCurrent"));
+  const superseded = renderRequirementSelect(requirements, t("requirement.status.superseded"), true);
+  const outdated = renderRequirementSelect(requirements, t("action.markOutdated"), true);
+  const mergedStatement = document.createElement("textarea");
+  mergedStatement.rows = 2;
+  mergedStatement.placeholder = t("decision.createdStatementPlaceholder");
+  const reason = document.createElement("input");
+  reason.type = "text";
+  reason.placeholder = t("decision.reasonPlaceholder");
+  const showError = (error) => {
+    actions.replaceChildren(renderOperationFeedback("error", t("view.error"), error.message || String(error)));
+  };
+  const runDecision = (payload) => {
+    actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
+    submitRequirementDecision(conflict.id, { ...payload, reason: reason.value }).then(() => loadView("review")).catch(showError);
+  };
+  const accept = createActionButton(t("action.acceptAsCurrent"), "primary", () => {
+    const acceptedFactId = accepted.select.value;
+    if (!acceptedFactId) {
+      actions.replaceChildren(renderOperationFeedback("error", t("view.error"), t("empty.facts.body")));
+      return;
+    }
+    runDecision({
+      action: "accept_fact",
+      accepted_fact_id: acceptedFactId,
+      superseded_fact_ids: selectedOptions(superseded.select).filter((id) => id !== acceptedFactId),
+    });
+  });
+  const merge = createActionButton(t("action.mergeRequirement"), "secondary", () => {
+    const acceptedFactId = accepted.select.value;
+    const sourceIds = Array.from(new Set([acceptedFactId, ...selectedOptions(superseded.select)].filter(Boolean)));
+    if (!sourceIds.length || !mergedStatement.value.trim()) {
+      actions.replaceChildren(renderOperationFeedback("error", t("view.error"), t("decision.createdStatementPlaceholder")));
+      return;
+    }
+    runDecision({
+      action: "merge_requirement",
+      accepted_fact_id: acceptedFactId,
+      superseded_fact_ids: sourceIds.filter((id) => id !== acceptedFactId),
+      created_statement: mergedStatement.value.trim(),
+    });
+  });
+  const markOutdated = createActionButton(t("action.markOutdated"), "secondary", () => {
+    const targets = selectedOptions(outdated.select);
+    if (!targets.length) {
+      actions.replaceChildren(renderOperationFeedback("error", t("view.error"), t("empty.facts.body")));
+      return;
+    }
+    runDecision({
+      action: "mark_outdated",
+      rejected_fact_ids: targets,
+    });
+  });
+  const later = createActionButton(t("action.leaveForLater"), "tertiary", () => {
+    runDecision({ action: "leave_for_later" });
+  });
+  const ignore = createActionButton(t("action.ignoreThisConflict"), "tertiary", () => {
+    runDecision({ action: "ignore_conflict" });
+  });
+  const hasRequirements = selectableRequirementOptions(requirements).length > 0;
+  accept.disabled = !hasRequirements;
+  merge.disabled = !hasRequirements;
+  markOutdated.disabled = !hasRequirements;
+  if (conflict.status === "resolved" || conflict.status === "ignored") {
+    accept.disabled = true;
+    merge.disabled = true;
+    markOutdated.disabled = true;
+    later.disabled = true;
+    ignore.disabled = true;
+  }
+  controls.append(accepted.label, superseded.label, outdated.label, mergedStatement, reason, accept, merge, markOutdated, later, ignore);
+  return controls;
+}
+
+function renderConflictCard(conflict, requirements = []) {
+  const card = createElement("article", `conflict-card conflict-card-${conflict.severity || "medium"}`);
+  const projectId = requireProject();
+  const conflictId = conflict.id;
+  const header = createElement("header", "card-header");
+  const title = createElement("strong", "", conflict.title || t("view.conflicts.title"));
+  const badges = createElement("div", "badge-row");
+  badges.append(
+    renderStatusBadge(t("badge.conflict"), "conflict"),
+    renderStatusBadge(conflictSeverityLabel(conflict.severity), conflict.severity || "medium"),
+    renderStatusBadge(conflictStatusLabel(conflict), conflict.status || "open")
+  );
+  header.append(title, badges);
+  const description = createElement("p", "", conflict.description || "-");
+  const evidence = evidenceItems(conflict);
+  const actions = createElement("div", "actions");
+  if (isRequirementConflict(conflict)) {
+    actions.append(renderConflictDecisionControls(conflict, actions, requirementsForConflict(conflict, requirements)));
+  } else {
+    actions.append(...renderLegacyConflictActions(conflict, actions));
+  }
   card.append(
     header,
     description,
@@ -2664,9 +2925,10 @@ function renderConflictCard(conflict) {
 }
 
 async function renderReview(projectId) {
-  const [conflicts, facts] = await Promise.all([
+  const [conflicts, facts, snapshot] = await Promise.all([
     api(`/api/projects/${projectId}/conflicts`),
     api(`/api/projects/${projectId}/facts`),
+    loadRequirementSnapshot(projectId),
   ]);
   const panel = createPanel(t("review.title"));
   const intro = document.createElement("p");
@@ -2676,7 +2938,8 @@ async function renderReview(projectId) {
 
   if (conflicts.length) {
     const grid = createElement("div", "conflict-grid");
-    conflicts.forEach((conflict) => grid.append(renderConflictCard(conflict)));
+    const requirements = snapshotRequirements(snapshot);
+    conflicts.forEach((conflict) => grid.append(renderConflictCard(conflict, requirements)));
     appendSection(panel, t("view.conflicts.title"), grid);
   } else {
     appendSection(panel, t("view.conflicts.title"), renderEmptyState({

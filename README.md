@@ -22,7 +22,9 @@ WhyWiki reads local files, docs, code, and Git repos, then builds a project memo
 
 - 🔎 **Source-backed blocks** from Markdown, text, CSV, code, PDF, DOCX, and XLSX
 - 🧠 **Project facts** extracted from the material, each with evidence
+- 🧭 **Current requirement snapshot** that separates current requirements from superseded historical requirements
 - ⚠️ **Conflict reports** for stale docs, mismatched APIs, missing files, and model/deployment drift
+- 📝 **Decision records** for conflict resolution, so old documents remain evidence without becoming current truth
 - 📚 **Wiki pages** generated from evidence, not vibes
 - 📦 **Handover packs** for onboarding, audits, and project transfer
 - 💬 **Ask with evidence** so answers point back to real files

@@ -948,3 +948,96 @@ def test_i18n_contains_p0_p1_ux_copy_for_each_language():
 
     for language, language_keys in languages.items():
         assert not required_keys - language_keys, f"{language} missing keys: {sorted(required_keys - language_keys)}"
+
+
+def test_i18n_contains_requirement_lifecycle_terms_for_each_language():
+    languages = parse_i18n_keys()
+    keys = {
+        "requirement.status.current",
+        "requirement.status.candidate",
+        "requirement.status.needsReview",
+        "requirement.status.confirmed",
+        "requirement.status.superseded",
+        "requirement.status.rejected",
+        "requirement.status.historical",
+        "requirement.status.conflicting",
+        "conflict.severity.high",
+        "conflict.severity.medium",
+        "conflict.severity.low",
+        "conflict.severity.unknown",
+        "conflict.status.open",
+        "conflict.status.resolved",
+        "conflict.status.ignored",
+        "conflict.status.unknown",
+        "source.status.active",
+        "source.status.partiallyOutdated",
+        "source.status.outdated",
+        "source.status.conflicting",
+        "source.status.referenceOnly",
+        "action.acceptAsCurrent",
+        "action.mergeRequirement",
+        "action.markOutdated",
+        "action.leaveForLater",
+        "action.ignoreThisConflict",
+        "decision.reasonPlaceholder",
+        "decision.createdStatementPlaceholder",
+    }
+    for language, language_keys in languages.items():
+        assert not keys - language_keys, f"{language} missing keys: {sorted(keys - language_keys)}"
+
+    content = (STATIC / "i18n.js").read_text(encoding="utf-8")
+    assert '"requirement.status.current": "当前有效"' in content
+    assert '"requirement.status.superseded": "已被替代"' in content
+    assert '"requirement.status.current": "Current"' in content
+    assert '"requirement.status.superseded": "Superseded"' in content
+    assert '"conflict.severity.medium": "中风险"' in content
+    assert '"conflict.status.open": "待处理"' in content
+    assert '"conflict.severity.medium": "Medium"' in content
+    assert '"conflict.status.open": "Open"' in content
+
+
+def test_app_js_uses_snapshot_and_localized_lifecycle_labels():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+
+    for symbol in (
+        "function requirementLifecycleStatus",
+        "function requirementStatusLabel",
+        "function conflictSeverityLabel",
+        "function conflictStatusLabel",
+        "function snapshotSourceStatuses",
+        "function renderSourceStatusCards",
+        "function requirementsForConflict",
+        "function isRequirementConflict",
+        "function renderLegacyConflictActions",
+        "function renderRequirementSnapshot",
+        "function submitRequirementDecision",
+        "/api/projects/${projectId}/requirements/snapshot",
+        "/api/projects/${projectId}/conflicts/${conflictId}/decision",
+    ):
+        assert symbol in content
+    assert "fact.lifecycleStatus" in content
+    assert "fact.validityStatus" in content
+    assert "Object.values(snapshot.source_statuses || {})" in content
+    assert "const facts = await api(`/api/projects/${projectId}/facts`);" in content
+    assert "const [sources, facts, conflicts, pages, snapshot] = await Promise.all" in content
+    assert "const currentRequirements = snapshot.current || [];" in content
+    assert 'appendSection(panel, t("status.current"), renderStateCards(facts, 8));' not in content
+    assert "fieldValue(conflict.status)" not in content
+    assert "fieldValue(conflict.severity)" not in content
+    assert "const known = new Set([\"high\", \"medium\", \"low\"]);" in content
+    assert "const known = new Set([\"open\", \"resolved\", \"ignored\"]);" in content
+    assert "t(`conflict.severity.${normalized}`)" in content
+    assert "t(`conflict.status.${normalized}`)" in content
+    assert 'return t("action.ignoreThisConflict")' not in content
+    assert 'return t("action.resolveConflict")' not in content
+    assert 'action: "merge_requirement"' in content
+    assert 'action: "mark_outdated"' in content
+    assert "rejected_fact_ids: targets" in content
+    assert "requirementsForConflict(conflict, requirements)" in content
+    assert '["requirement", "requirement_conflict"].includes(conflict.conflict_type)' in content
+    assert "renderLegacyConflictActions(conflict, actions)" in content
+    assert "actions.append(...renderLegacyConflictActions(conflict, actions));" in content
+    assert ".status-badge-current" in css
+    assert ".status-badge-superseded" in css
+    assert ".source-status-partially_outdated" in css

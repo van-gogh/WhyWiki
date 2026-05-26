@@ -1695,6 +1695,7 @@ pre {
 .status-badge-review,
 .status-badge-needs-review,
 .status-badge-needs_review,
+.status-badge-needsReview,
 .status-badge-medium,
 .status-badge-open {
   border-color: #fed7aa;
@@ -1708,13 +1709,16 @@ pre {
   color: var(--stale);
 }
 
+.status-badge-rejected,
 .status-badge-conflict,
+.status-badge-conflicting,
 .status-badge-high {
   border-color: #fecaca;
   background: var(--danger-bg);
   color: var(--conflict);
 }
 
+.status-badge-current,
 .status-badge-confirmed,
 .status-badge-evidence,
 .status-badge-source-backed,
@@ -1729,6 +1733,29 @@ pre {
   border-color: #bfdbfe;
   background: var(--info-bg);
   color: var(--source-git);
+}
+
+.status-badge-superseded,
+.status-badge-historical,
+.source-status-partially_outdated,
+.source-status-outdated {
+  border-color: var(--stale);
+  color: var(--stale);
+}
+
+.source-status-active {
+  border-color: var(--confirmed);
+  color: var(--confirmed);
+}
+
+.source-status-conflicting {
+  border-color: var(--conflict);
+  color: var(--conflict);
+}
+
+.source-status-reference_only {
+  border-color: var(--line-strong);
+  color: var(--muted);
 }
 
 .source-badge-git {
@@ -1775,7 +1802,24 @@ pre {
 
 .source-grid,
 .fact-grid,
-.conflict-grid {
+.conflict-grid,
+.source-status-grid,
+.requirement-snapshot {
+  display: grid;
+}
+
+.source-grid,
+.fact-grid,
+.conflict-grid,
+.source-status-grid {
+  gap: 12px;
+}
+
+.requirement-snapshot {
+  gap: 18px;
+}
+
+.requirement-snapshot-section {
   display: grid;
   gap: 12px;
 }
@@ -1807,6 +1851,45 @@ pre {
 
 .conflict-card-medium {
   border-left-color: var(--needs-review);
+}
+
+.source-status-card {
+  align-items: start;
+}
+
+.source-status {
+  display: inline-flex;
+  width: max-content;
+  max-width: 100%;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.decision-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.decision-controls label {
+  display: grid;
+  min-width: min(260px, 100%);
+  flex: 1 1 240px;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.decision-controls select,
+.decision-controls input {
+  min-width: min(260px, 100%);
+  flex: 1 1 240px;
 }
 
 .fact-statement,
