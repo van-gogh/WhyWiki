@@ -223,7 +223,7 @@ def test_serve_writes_actual_runtime_state_and_log(tmp_path, monkeypatch, capsys
     assert read_runtime_state(RuntimePaths(tmp_path)) is None
     output = capsys.readouterr().out
     assert "Open: http://127.0.0.1:8765" in output
-    assert "Logs: whywiki log" in output
+    assert "Logs: whywiki log" not in output
     log = RuntimePaths(tmp_path).log_path.read_text(encoding="utf-8")
     assert "Starting WhyWiki on http://127.0.0.1:8765" in log
     assert "WhyWiki server stopped." in log
@@ -249,7 +249,7 @@ def test_serve_reuses_active_runtime_state_without_starting_second_server(tmp_pa
     output = capsys.readouterr().out
     assert "WhyWiki is already running on 127.0.0.1:8765." in output
     assert "Open: http://127.0.0.1:8765" in output
-    assert "Logs: whywiki log" in output
+    assert "Logs: whywiki log" not in output
 
 
 def test_serve_prompts_for_existing_whywiki_and_continues_with_current_url(tmp_path, monkeypatch, capsys):

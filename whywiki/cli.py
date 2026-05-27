@@ -112,7 +112,6 @@ def run_server(host: str, port: int, paths, restart: bool = False) -> int:
     else:
         print("WhyWiki is running locally.")
     print(f"Open: {url}")
-    print("Logs: whywiki log")
     try:
         uvicorn.run("whywiki.app:app", host=host, port=port, reload=False)
         return 0
@@ -266,7 +265,6 @@ def main(argv: list[str] | None = None) -> int:
             url = f"http://{active_state['host']}:{active_state['port']}"
             if choice == "1":
                 print(f"Open: {url}")
-                print("Logs: whywiki log")
                 return 0
 
             pid = state_pid(active_state, str(active_state["host"]), int(active_state["port"]))
@@ -290,7 +288,6 @@ def main(argv: list[str] | None = None) -> int:
                 choice = print_running_whywiki_options(whywiki_state)
                 if choice == "1":
                     print(f"Open: http://{args.host}:{args.port}")
-                    print("Logs: whywiki log")
                     return 0
                 if owner is None:
                     print("Could not identify the running WhyWiki process. Canceling restart.", file=sys.stderr)

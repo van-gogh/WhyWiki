@@ -19,9 +19,6 @@ WhyWiki is running locally.
 Open:
 http://127.0.0.1:8765
 
-Logs:
-whywiki log
-
 Data:
 ~/.whywiki
 ```
@@ -40,12 +37,10 @@ The npm package should expose a small local-app launcher:
 whywiki          # start quietly, print the local Web URL
 whywiki open     # open the current Web UI
 whywiki status   # show running state, port, version, and data directory
-whywiki log      # show logs for the current or most recent startup
 whywiki stop     # stop the local background service
-whywiki doctor   # diagnose port, runtime, and data directory problems
 ```
 
-`whywiki log` is part of the product surface. Users should not need to know process IDs, Docker logs, uvicorn internals, or where stdout was redirected. The first version can read from `~/.whywiki/logs/whywiki.log` and support a simple `--tail` option later.
+Developer and support builds may keep commands such as `whywiki log` or `whywiki doctor`, but they should not appear in the normal browser UI or first-run path. Product failures should explain the next user action directly instead of asking users to inspect backend logs.
 
 ## Installation Strategy
 
@@ -96,7 +91,7 @@ Primary layout:
 - Project navigation: demand status, original files, demand conflict points, demand Q&A, and settings.
 - Top bar: project name, search, status, and local server indicator.
 - Main dashboard: project health, recent files, conflict summary, wiki pages, and handover shortcut.
-- Floating help/log affordance: links to `whywiki log` and diagnostics when startup or ingest fails
+- Flow-level recovery: startup, ingest, and build failures should explain the user action to retry or fix permissions; developer logs stay out of the default product UI.
 
 First-run dashboard:
 
@@ -117,7 +112,7 @@ Normal users should only need:
 whywiki
 ```
 
-Troubleshooting users should only need:
+Support and developer troubleshooting can still use:
 
 ```bash
 whywiki log

@@ -176,7 +176,7 @@ def test_i18n_contains_chinese_and_english_dictionaries():
 
     assert "zh-CN" in content
     assert "en-US" in content
-    assert "error.readLogs" in content
+    assert "whywiki log" not in content
 
 
 def test_sidebar_exposes_collaboration_status_targets():
@@ -412,6 +412,64 @@ def test_app_js_rerenders_active_view_after_language_change():
     assert 'translate(button.dataset.lang, { rerender: true })' in content
 
 
+def test_view_navigation_debounces_loading_flash_and_ignores_stale_renders():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    load_start = content.index("async function loadView")
+    load_end = content.index('document.querySelectorAll("[data-lang]")')
+    load_body = content[load_start:load_end]
+
+    assert "const viewLoadingDelayMs = 180;" in content
+    assert "function scheduleViewLoading" in content
+    assert "function finishViewLoading" in content
+    assert "const loadId = nextViewLoadId();" in load_body
+    assert "const targetView = normalizeView(view);" in load_body
+    assert 'appNode.setAttribute("aria-busy", "true");' in load_body
+    assert "const loadingTimer = scheduleViewLoading(appNode, loadId);" in load_body
+    assert "if (!isCurrentViewLoad(loadId)) return;" in load_body
+    assert 'appNode.replaceChildren(renderOperationFeedback("loading", t("view.loading")))' not in load_body
+
+
+def test_settings_page_does_not_expose_developer_diagnostics():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    i18n = (STATIC / "i18n.js").read_text(encoding="utf-8")
+    settings_start = content.index("async function renderSettings")
+    settings_end = content.index("async function loadView")
+    settings_body = content[settings_start:settings_end]
+
+    assert "settings.diagnostics" not in content
+    assert "error.readLogs" not in content
+    assert "settings.diagnostics" not in i18n
+    assert "error.readLogs" not in i18n
+    assert "whywiki log" not in i18n
+    assert "logs.append" not in settings_body
+    assert "settingsGrid.append(handover);" in settings_body
+
+
+def test_primary_views_do_not_render_developer_record_prose():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    i18n = (STATIC / "i18n.js").read_text(encoding="utf-8")
+
+    for phrase in (
+        "这里放",
+        "Settings only keeps",
+        "WhyWiki scans project materials",
+        "Conflicts and extracted conclusions",
+        "The working view for",
+        "Generate an evidence-backed Wiki after",
+        "扫描项目材料，抽取",
+    ):
+        assert phrase not in i18n
+
+    for function_name in ("renderSources", "renderFacts", "renderReview", "renderAsk", "renderSettings"):
+        start = content.index(f"async function {function_name}")
+        remaining = content[start + 1:]
+        next_function = remaining.find("async function")
+        end = start + 1 + next_function if next_function >= 0 else len(content)
+        function_body = content[start:end]
+        assert 'createElement("p", "status-intro"' not in function_body
+        assert 'document.createElement("p")' not in function_body
+
+
 def test_i18n_buttons_have_english_fallback_labels():
     parser = parse_dashboard()
 
@@ -506,7 +564,6 @@ def test_i18n_contains_dynamic_dashboard_keys_for_each_language():
         "nav.home",
         "nav.backToProjects",
         "status.title",
-        "status.subtitle",
         "status.current",
         "status.recent",
         "status.review",
@@ -658,6 +715,23 @@ def test_styles_include_mobile_overflow_guards():
     assert "min-width: 0;" in content
     assert "flex-wrap: wrap;" in content
     assert "display: block;" in content
+    assert "height: auto;" in content
+    assert "overflow: visible;" in content
+
+
+def test_desktop_layout_keeps_sidebar_fixed_and_scrolls_content_only():
+    content = (STATIC / "styles.css").read_text(encoding="utf-8")
+
+    for token in (
+        "grid-template-columns: 240px 1fr;",
+        "height: 100dvh;",
+        "overflow: hidden;",
+        "grid-template-rows: auto minmax(0, 1fr);",
+        "overflow-y: auto;",
+        "overscroll-behavior: contain;",
+        ".dashboard {\n  min-height: 0;\n  overflow: auto;",
+    ):
+        assert token in content
 
 
 def test_language_switch_has_bouncing_bubble_state():
@@ -843,6 +917,55 @@ def test_requirements_page_exposes_multiselect_filters_and_conflict_jump():
     assert ".requirement-filter-chip" in css
     assert ".requirement-conflict-jump" in css
     assert ".requirement-card.is-jump-target" in css
+
+
+def test_sources_page_renders_original_reader_workspace_and_cross_page_jumps():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+    languages = parse_i18n_keys()
+
+    for symbol in (
+        "let sourceReaderTarget",
+        "function sourceReferenceFromEvidence",
+        "function openSourceReaderFromEvidence",
+        "function renderSourceReader",
+        "function renderSourceReaderBlocks",
+        "function renderSourceReaderRail",
+        "function sourceMatchesEvidence",
+        "function relatedRowsForSource",
+    ):
+        assert symbol in content
+
+    for endpoint in (
+        "/api/projects/${projectId}/sources/${selectedSource.id}/blocks",
+        "/api/projects/${projectId}/facts",
+        "/api/projects/${projectId}/conflicts",
+    ):
+        assert endpoint in content
+
+    assert "sourceReaderTarget = sourceReferenceFromEvidence" in content
+    assert "loadView(\"sources\")" in content
+    assert "data-source-id" in content
+    assert "data-block-id" in content
+    assert "is-source-reader-target" in content
+    assert ".source-reader" in css
+    assert ".source-reader-list" in css
+    assert ".source-reader-document" in css
+    assert ".source-reader-rail" in css
+    assert ".source-reader-block.is-source-reader-target" in css
+
+    required_keys = {
+        "sources.reader.title",
+        "sources.reader.body",
+        "sources.reader.originalText",
+        "sources.reader.relatedTitle",
+        "sources.reader.emptyBlocksTitle",
+        "sources.reader.emptyBlocksBody",
+        "sources.reader.noRelated",
+        "action.openSourceReader",
+    }
+    for language, language_keys in languages.items():
+        assert not required_keys - language_keys, f"{language} missing keys: {sorted(required_keys - language_keys)}"
 
 
 def test_project_home_body_and_preview_badges_track_project_state():

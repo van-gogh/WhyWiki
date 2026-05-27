@@ -72,11 +72,11 @@ WhyWiki 首板的核心闭环是：
 | Web UI | 项目内主页 | 已完成 | 打开项目后默认进入项目主页；空项目引导连接本地文件夹或 GitHub 仓库，并以项目内浮窗完成连接，避免误用项目级返回；已有项目展示需求预览和查看全部需求入口。 |
 | Web UI | 需求页 | 已完成 | `需求` 页以当前需求快照为主，区分当前有效、待确认、已被替代和历史参考需求，并在卡片中展开来源、证据和支撑事实。 |
 | Web UI | 需求筛选与冲突跳转 | 已完成 | `全部需求` 工具栏提供可多选筛选 chips，并提供 `冲突 {current}/{total}` 上下跳转控件。 |
-| Web UI | 来源视图 | 已完成 | 能列出来源，并通过 API 查看 source/block 内容；需求来源状态会标注当前可信、部分过期或已过期。 |
+| Web UI | 来源视图 | 已完成 | 来源页是原文阅读工作台：左侧选择来源，中间阅读 parsed source blocks，右侧展示该来源关联的需求/冲突；需求、冲突和证据抽屉可跳转到同一个来源阅读器并定位原文片段。 |
 | Web UI | 冲突视图 | 已完成 | 能展示 open conflicts 和待确认需求；显式需求冲突支持接受为当前需求、合并、标记过期、暂不处理和忽略，非需求冲突保留普通 resolve/ignore 操作。 |
 | Web UI | Wiki index | 已完成 | Wiki 索引在 topbar，不作为日常首页。 |
 | Web UI | 需求问答视图 | 已完成 | 有默认问题，渲染 answer 和 structured evidence。 |
-| Web UI | Settings / handover export | 部分完成 | Settings 能展示 handover；更完整的导出/下载体验未做。 |
+| Web UI | Settings / handover export | 部分完成 | Settings 只保留用户可直接控制的低频操作，目前能展示 handover；开发者诊断和运行日志不在普通用户设置页暴露，更完整的导出/下载体验未做。 |
 | Web UI | 中英文切换 | 已完成 | 有中文/英文 language switch，并由 web asset tests 覆盖。 |
 | Web UI | 生命周期本地化状态 | 已完成 | 中文模式显示“当前有效 / 已被替代 / 待确认”等中文状态；英文模式显示对应英文状态，不在主 UI 暴露裸枚举。 |
 | Git provider login | 真实 Provider 登录 | 已完成 | GitHub device flow 和 Gitea PKCE 可在本地连接 provider 账号；token 不进入 `accounts.json`，默认走系统凭据存储，开发环境可显式启用文件 fallback。 |

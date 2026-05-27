@@ -13,6 +13,9 @@ let requirementFilterState = new Set(["all"]);
 let activeConflictRequirementId = null;
 let requirementJumpTimer = null;
 let workspaceModalCounter = 0;
+let sourceReaderTarget = null;
+let viewLoadRequestId = 0;
+const viewLoadingDelayMs = 180;
 let collaborationState = {
   accounts: [],
   workspace: { configured: false, workspace: null },
@@ -1586,6 +1589,39 @@ function appContainer() {
   return document.querySelector("#app");
 }
 
+function nextViewLoadId() {
+  viewLoadRequestId += 1;
+  return viewLoadRequestId;
+}
+
+function isCurrentViewLoad(loadId) {
+  return loadId === viewLoadRequestId;
+}
+
+function shouldShowViewLoadingImmediately(appNode) {
+  return !appNode || !appNode.childElementCount;
+}
+
+function scheduleViewLoading(appNode, loadId) {
+  const showLoading = () => {
+    if (!isCurrentViewLoad(loadId)) return;
+    appNode.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
+  };
+  if (shouldShowViewLoadingImmediately(appNode)) {
+    showLoading();
+    return null;
+  }
+  return window.setTimeout(showLoading, viewLoadingDelayMs);
+}
+
+function finishViewLoading(appNode, loadId, loadingTimer, content) {
+  if (loadingTimer !== null) window.clearTimeout(loadingTimer);
+  if (!isCurrentViewLoad(loadId)) return false;
+  appNode.removeAttribute("aria-busy");
+  appNode.replaceChildren(content);
+  return true;
+}
+
 function rerenderActiveViewAfterLanguageChange() {
   if (!appContainer()) return;
   loadView(activeView).catch((error) => {
@@ -1840,6 +1876,42 @@ function evidenceItems(row) {
   return parseJsonList(row.evidence_json).filter((item) => item && typeof item === "object");
 }
 
+function sourceReferenceFromEvidence(evidence = []) {
+  const items = Array.isArray(evidence) ? evidence : parseJsonList(evidence);
+  const item = items.find((entry) => entry && typeof entry === "object" && (
+    entry.source_id || entry.sourceId || entry.path || entry.source_path || entry.block_id || entry.blockId
+  ));
+  if (!item) return null;
+  return {
+    sourceId: item.source_id || item.sourceId || "",
+    sourcePath: item.path || item.source_path || "",
+    blockId: item.block_id || item.blockId || (item.kind === "block" ? item.id : ""),
+    factId: item.fact_id || (item.kind === "fact" ? item.id : ""),
+  };
+}
+
+function openSourceReaderFromEvidence(evidence = []) {
+  sourceReaderTarget = sourceReferenceFromEvidence(evidence);
+  loadView("sources").catch((error) => {
+    const appNode = appContainer();
+    if (appNode) appNode.prepend(renderOperationFeedback("error", t("view.error"), error.message));
+  });
+}
+
+function sourceMatchesEvidence(source, evidence = {}) {
+  if (!source || !evidence) return false;
+  const referenceSourceId = evidence.source_id || evidence.sourceId || "";
+  const path = evidence.path || evidence.source_path || evidence.sourcePath || "";
+  return Boolean(
+    (referenceSourceId && source.id === referenceSourceId) ||
+    (path && source.path === path)
+  );
+}
+
+function relatedRowsForSource(source, rows = []) {
+  return rows.filter((row) => evidenceItems(row).some((item) => sourceMatchesEvidence(source, item)));
+}
+
 function sourceKindFromPath(source) {
   const type = String(source.source_type || "").toLowerCase();
   const path = String(source.path || "").toLowerCase();
@@ -1953,6 +2025,9 @@ function renderEvidenceDetailItem(item) {
     block.className = "evidence-block-text";
     block.textContent = item.block_text;
     card.append(block);
+  }
+  if (sourceReferenceFromEvidence([item])) {
+    card.append(createActionButton(t("action.openSourceReader"), "tertiary", () => openSourceReaderFromEvidence([item])));
   }
   return card;
 }
@@ -2529,10 +2604,131 @@ async function buildCurrentProject() {
   }
 }
 
+function selectSourceForReader(sources = []) {
+  if (!sources.length) return null;
+  if (sourceReaderTarget) {
+    const target = sources.find((source) => sourceMatchesEvidence(source, sourceReaderTarget));
+    if (target) return target;
+  }
+  return sources[0];
+}
+
+function sourceBlockLocation(block = {}) {
+  if (!block.location_json) return "";
+  if (typeof block.location_json === "object") return fieldValue(block.location_json);
+  try {
+    return fieldValue(JSON.parse(block.location_json));
+  } catch {
+    return String(block.location_json);
+  }
+}
+
+function renderSourceReaderBlocks(selectedSource, blocks = []) {
+  const body = createElement("div", "source-reader-blocks");
+  if (!blocks.length) {
+    body.append(renderEmptyState({
+      title: t("sources.reader.emptyBlocksTitle"),
+      body: t("sources.reader.emptyBlocksBody"),
+      kind: "sources",
+    }));
+    return body;
+  }
+  const targetBlockId = sourceReaderTarget?.blockId || "";
+  blocks.forEach((block) => {
+    const item = createElement("article", "source-reader-block");
+    item.setAttribute("data-block-id", block.id || "");
+    if (targetBlockId && block.id === targetBlockId) item.classList.add("is-source-reader-target");
+    const header = createElement("header", "card-header");
+    header.append(
+      createElement("strong", "", block.block_type || t("sources.reader.originalText")),
+      createElement("span", "muted", sourceBlockLocation(block))
+    );
+    const text = document.createElement("pre");
+    text.textContent = block.text || "";
+    item.append(header, text);
+    body.append(item);
+  });
+  return body;
+}
+
+function renderSourceReaderRelatedItem(row, kind) {
+  const item = createElement("article", "source-reader-related-item");
+  const title = row.title || row.statement || row.description || row.id || "-";
+  item.append(createElement("strong", "", title));
+  const meta = createElement("div", "card-meta");
+  if (kind === "conflict") {
+    meta.append(renderStatusBadge(conflictSeverityLabel(row.severity), row.severity || "medium"));
+    meta.append(renderStatusBadge(conflictStatusLabel(row), row.status || "open"));
+  } else {
+    meta.append(renderStatusBadge(requirementStatusLabel(row), requirementStatusKind(row)));
+    meta.append(renderEvidenceBadge(row));
+  }
+  item.append(meta);
+  return item;
+}
+
+function renderSourceReaderRail(source, facts = [], conflicts = []) {
+  const rail = createElement("aside", "source-reader-rail");
+  rail.append(createElement("h3", "", t("sources.reader.relatedTitle")));
+  const meta = createElement("div", "source-reader-meta");
+  appendField(meta, t("field.path"), source.path);
+  appendField(meta, t("field.updatedAt"), fieldValue(source.updated_at));
+  meta.append(renderSourceBadge(source));
+  rail.append(meta);
+
+  const relatedFacts = relatedRowsForSource(source, facts);
+  const relatedConflicts = relatedRowsForSource(source, conflicts);
+  if (!relatedFacts.length && !relatedConflicts.length) {
+    rail.append(createElement("p", "muted", t("sources.reader.noRelated")));
+    return rail;
+  }
+  relatedFacts.slice(0, 5).forEach((fact) => rail.append(renderSourceReaderRelatedItem(fact, "fact")));
+  relatedConflicts.slice(0, 5).forEach((conflict) => rail.append(renderSourceReaderRelatedItem(conflict, "conflict")));
+  return rail;
+}
+
+function renderSourceReader(sources, selectedSource, blocks, facts, conflicts) {
+  const reader = createElement("section", "source-reader");
+  reader.setAttribute("aria-label", t("sources.reader.title"));
+  reader.setAttribute("data-source-id", selectedSource.id || "");
+
+  const list = createElement("aside", "source-reader-list");
+  list.append(createElement("h3", "", t("sources.reader.title")), createElement("p", "muted", t("sources.reader.body")));
+  sources.forEach((source) => {
+    const button = createActionButton(source.title || source.path, source.id === selectedSource.id ? "primary" : "secondary", () => {
+      sourceReaderTarget = { sourceId: source.id, sourcePath: source.path, blockId: "" };
+      loadView("sources").catch((error) => {
+        const appNode = appContainer();
+        if (appNode) appNode.prepend(renderOperationFeedback("error", t("view.error"), error.message));
+      });
+    });
+    button.classList.add("source-reader-source-button");
+    button.setAttribute("data-source-id", source.id || "");
+    if (source.id === selectedSource.id) button.setAttribute("aria-current", "true");
+    list.append(button);
+  });
+
+  const documentPane = createElement("section", "source-reader-document");
+  const header = createElement("header", "source-reader-document-header");
+  const title = createElement("div");
+  title.append(createElement("h3", "", selectedSource.title || selectedSource.path), createElement("p", "source-path", selectedSource.path));
+  header.append(title, renderSourceBadge(selectedSource));
+  documentPane.append(header, renderSourceReaderBlocks(selectedSource, blocks));
+
+  reader.append(list, documentPane, renderSourceReaderRail(selectedSource, facts, conflicts));
+  window.requestAnimationFrame(() => {
+    reader.querySelector(".source-reader-block.is-source-reader-target")?.scrollIntoView({ block: "center", behavior: "smooth" });
+  });
+  return reader;
+}
+
 async function renderSources(projectId) {
-  const sources = await api(`/api/projects/${projectId}/sources`);
+  const [sources, facts, conflicts] = await Promise.all([
+    api(`/api/projects/${projectId}/sources`),
+    api(`/api/projects/${projectId}/facts`),
+    api(`/api/projects/${projectId}/conflicts`),
+  ]);
   const panel = createPanel(t("view.sources.title"));
-  panel.append(createElement("p", "status-intro", t("empty.sources.body")));
   if (!sources.length) {
     panel.append(renderEmptyState({
       title: t("empty.sources.title"),
@@ -2543,19 +2739,9 @@ async function renderSources(projectId) {
     }));
     return panel;
   }
-  const grid = createElement("div", "record-grid source-grid");
-  sources.forEach((source) => {
-    const card = createElement("article", "record-card source-card");
-    const header = createElement("header", "card-header");
-    header.append(createElement("strong", "", source.title || source.path), renderSourceBadge(source));
-    card.append(header, createElement("p", "source-path", source.path));
-    const meta = createElement("div", "card-meta");
-    meta.append(createElement("span", "", `${t("field.updatedAt")}: ${fieldValue(source.updated_at)}`));
-    if (source.version_hint) meta.append(createElement("span", "", source.version_hint));
-    card.append(meta);
-    grid.append(card);
-  });
-  panel.append(grid);
+  const selectedSource = selectSourceForReader(sources);
+  const blocks = await api(`/api/projects/${projectId}/sources/${selectedSource.id}/blocks`);
+  panel.append(renderSourceReader(sources, selectedSource, blocks, facts, conflicts));
   return panel;
 }
 
@@ -2618,7 +2804,6 @@ function renderSourceStatusCards(sourceStatuses = []) {
 async function renderFacts(projectId) {
   const facts = await api(`/api/projects/${projectId}/facts`);
   const panel = createPanel(t("view.requirements.title"));
-  panel.append(createElement("p", "status-intro", t("empty.facts.body")));
   if (!facts.length) {
     panel.append(renderEmptyState({
       title: t("empty.facts.title"),
@@ -2658,11 +2843,11 @@ function renderRequirementCard(requirement, supportingFacts = []) {
 
   const body = createElement("p", "requirement-statement", requirement.statement || "-");
   const actions = createElement("div", "actions");
+  const requirementEvidence = evidenceItems(requirement);
+  const viewSource = createActionButton(t("action.viewSource"), "tertiary", () => openSourceReaderFromEvidence(requirementEvidence));
+  viewSource.disabled = !sourceReferenceFromEvidence(requirementEvidence);
   actions.append(
-    createActionButton(t("action.viewSource"), "tertiary", () => {
-      const drawer = card.querySelector(".evidence-drawer");
-      if (drawer) drawer.open = true;
-    }),
+    viewSource,
     createActionButton(t("action.confirmRequirement"), "secondary", () => {
       actions.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
       updateFactStatus(requirement.id, "confirmed").then((updated) => {
@@ -2688,7 +2873,7 @@ function renderRequirementCard(requirement, supportingFacts = []) {
     support,
     actions,
     renderEvidenceDrawer(
-      evidenceItems(requirement),
+      requirementEvidence,
       t("sources.drawer.title"),
       requirement.id ? `/api/projects/${requireProject()}/facts/${requirement.id}/evidence` : ""
     )
@@ -3312,6 +3497,9 @@ function renderConflictCard(conflict, requirements = []) {
   const description = createElement("p", "", conflict.description || "-");
   const evidence = evidenceItems(conflict);
   const actions = createElement("div", "actions");
+  if (sourceReferenceFromEvidence(evidence)) {
+    actions.append(createActionButton(t("action.openSourceReader"), "tertiary", () => openSourceReaderFromEvidence(evidence)));
+  }
   if (isRequirementConflict(conflict)) {
     actions.append(renderConflictDecisionControls(conflict, actions, requirementsForConflict(conflict, requirements)));
   } else {
@@ -3337,10 +3525,6 @@ async function renderReview(projectId) {
     loadRequirementSnapshot(projectId),
   ]);
   const panel = createPanel(t("review.title"));
-  const intro = document.createElement("p");
-  intro.className = "status-intro";
-  intro.textContent = t("review.subtitle");
-  panel.append(intro);
 
   if (conflicts.length) {
     const grid = createElement("div", "conflict-grid");
@@ -3439,7 +3623,6 @@ async function renderHandover(projectId) {
 
 async function renderAsk(projectId) {
   const panel = createPanel(t("view.ask.title"));
-  panel.append(createElement("p", "status-intro", t("ask.noEvidence.body")));
   const form = document.createElement("form");
   form.className = "ask-form";
   const input = document.createElement("input");
@@ -3500,7 +3683,6 @@ async function renderAsk(projectId) {
 async function renderSettings() {
   const panel = createPanel(t("view.settings.title"));
   const projectId = requireProject();
-  panel.append(createElement("p", "status-intro", t("settings.subtitle")));
   const exportButton = document.createElement("button");
   exportButton.type = "button";
   exportButton.className = "action-secondary";
@@ -3535,32 +3717,33 @@ async function renderSettings() {
       }));
     }
   });
-  const diagnostics = createElement("div", "settings-grid");
-  const logs = createElement("article", "record-card");
-  logs.append(createElement("h3", "", t("settings.diagnostics")), createElement("p", "muted", t("error.readLogs")));
+  const settingsGrid = createElement("div", "settings-grid");
   const handover = createElement("article", "record-card");
   handover.append(createElement("h3", "", t("view.handover.title")), createElement("p", "muted", t("settings.export")), exportButton);
-  diagnostics.append(handover, logs);
-  panel.append(diagnostics, output);
+  settingsGrid.append(handover);
+  panel.append(settingsGrid, output);
   return panel;
 }
 
 async function loadView(view) {
   const appNode = appContainer();
   if (!appNode) return;
-  activeView = normalizeView(view);
-  setActiveView(activeView);
-  appNode.replaceChildren(renderOperationFeedback("loading", t("view.loading")));
+  const targetView = normalizeView(view);
+  const loadId = nextViewLoadId();
+  activeView = targetView;
+  setActiveView(targetView);
+  appNode.setAttribute("aria-busy", "true");
+  const loadingTimer = scheduleViewLoading(appNode, loadId);
 
   try {
-    if (activeView === "projects") {
-      appNode.replaceChildren(await renderProjectsHome());
+    if (targetView === "projects") {
+      finishViewLoading(appNode, loadId, loadingTimer, await renderProjectsHome());
       return;
     }
 
     const projectId = requireProject();
     if (!projectId) {
-      appNode.replaceChildren(renderNoProjectAction());
+      finishViewLoading(appNode, loadId, loadingTimer, renderNoProjectAction());
       return;
     }
 
@@ -3576,11 +3759,21 @@ async function loadView(view) {
       settings: renderSettings,
     };
     await ensureCurrentProject();
+    if (!isCurrentViewLoad(loadId)) return;
     updateWorkspaceChrome(true);
-    const renderer = renderers[activeView] || renderStatus;
-    appNode.replaceChildren(await renderer(projectId));
+    const renderer = renderers[targetView] || renderStatus;
+    finishViewLoading(appNode, loadId, loadingTimer, await renderer(projectId));
   } catch (error) {
-    appNode.replaceChildren(renderOperationFeedback("error", t("view.error"), `${error.message} ${t("operation.error.recovery")}`));
+    if (!isCurrentViewLoad(loadId)) return;
+    finishViewLoading(
+      appNode,
+      loadId,
+      loadingTimer,
+      renderOperationFeedback("error", t("view.error"), `${error.message} ${t("operation.error.recovery")}`)
+    );
+  } finally {
+    if (loadingTimer !== null) window.clearTimeout(loadingTimer);
+    if (isCurrentViewLoad(loadId)) appNode.removeAttribute("aria-busy");
   }
 }
 

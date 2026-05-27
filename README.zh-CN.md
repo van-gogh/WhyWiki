@@ -58,9 +58,6 @@ WhyWiki is running locally.
 
 Open:
 http://127.0.0.1:8765
-
-Logs:
-whywiki log
 ```
 
 打开这个地址，创建项目，导入一个本地文件夹，然后检查项目状态、冲突、Wiki 页面、交接包、来源材料，以及带证据的 Ask。
