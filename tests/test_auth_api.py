@@ -35,6 +35,8 @@ def isolate_auth_api_env(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
     if hasattr(app_module, "auth_sessions"):
         app_module.auth_sessions._sessions.clear()
+        if hasattr(app_module.auth_sessions, "_results"):
+            app_module.auth_sessions._results.clear()
 
 
 def _client() -> TestClient:
@@ -319,6 +321,34 @@ def test_gitea_start_stores_session_and_returns_authorization_url_without_token(
     assert app_module.auth_sessions.pop("state-123") == {"state": "state-123", "code_verifier": "verifier"}
 
 
+def test_gitea_status_reports_waiting_session_without_session_secret(monkeypatch):
+    def fake_start(self):
+        return {
+            "status": "redirect",
+            "provider": "gitea",
+            "authorization_url": "https://git.example.test/login/oauth/authorize?state=state-123",
+            "state": "state-123",
+            "session": {
+                "provider": "gitea",
+                "base_url": "https://git.example.test",
+                "state": "state-123",
+                "code_verifier": "secret-verifier",
+            },
+        }
+
+    monkeypatch.setattr(app_module.GiteaOAuthClient, "start", fake_start)
+
+    start = _client().post(
+        "/api/auth/gitea/start",
+        json={"base_url": "https://git.example.test", "client_id": "gitea-client"},
+    )
+    status = _client().get(f"/api/auth/gitea/status?state={start.json()['state']}")
+
+    assert status.status_code == 200
+    assert status.json() == {"status": "waiting_for_user", "provider": "gitea"}
+    assert "secret-verifier" not in status.text
+
+
 def test_gitea_callback_missing_code_or_state_returns_html_400():
     missing_code = _client().get("/api/auth/gitea/callback?state=state-123")
     missing_state = _client().get("/api/auth/gitea/callback?code=code-123")
@@ -376,6 +406,14 @@ def test_gitea_callback_success_saves_identity_and_token(tmp_path, monkeypatch):
     assert "gitea-secret" not in response.text
     assert AccountStore(tmp_path / "data" / "auth" / "accounts.json").list_identities() == [identity]
     assert _token_store(tmp_path).load(identity).access_token == "gitea-secret"
+    status = _client().get("/api/auth/gitea/status?state=state-123")
+    assert status.status_code == 200
+    assert status.json() == {
+        "status": "connected",
+        "provider": "gitea",
+        "identity": identity.to_dict(),
+    }
+    assert "gitea-secret" not in status.text
 
 
 def test_gitea_callback_provider_failure_returns_html_without_saving_account(tmp_path, monkeypatch):
@@ -401,6 +439,60 @@ def test_gitea_callback_provider_failure_returns_html_without_saving_account(tmp
     assert "gitea login failed" in response.text.lower()
     assert "provider returned malformed" not in response.text
     assert AccountStore(tmp_path / "data" / "auth" / "accounts.json").list_identities() == []
+    status = _client().get("/api/auth/gitea/status?state=state-123")
+    assert status.status_code == 200
+    assert status.json()["status"] == "failed"
+    assert status.json()["provider"] == "gitea"
+    assert status.json()["error"] == "oauth_exchange_failed"
+    assert "Redirect URL" in status.json()["error_description"]
+    assert "provider returned malformed" not in status.text
+
+
+def test_gitea_callback_provider_error_records_failed_status(monkeypatch):
+    app_module.auth_sessions.save(
+        "state-123",
+        {
+            "provider": "gitea",
+            "base_url": "https://git.example.test",
+            "client_id": "gitea-client",
+            "redirect_uri": "http://127.0.0.1:8765/api/auth/gitea/callback",
+            "code_verifier": "verifier",
+        },
+    )
+
+    response = _client().get("/api/auth/gitea/callback?error=access_denied&state=state-123")
+
+    assert response.status_code == 400
+    assert "authorization was not completed" in response.text.lower()
+    status = _client().get("/api/auth/gitea/status?state=state-123")
+    assert status.status_code == 200
+    assert status.json()["status"] == "failed"
+    assert status.json()["provider"] == "gitea"
+    assert status.json()["error"] == "access_denied"
+
+
+def test_gitea_status_expired_and_cancel_clear_pending_session():
+    app_module.auth_sessions.save(
+        "state-123",
+        {
+            "provider": "gitea",
+            "base_url": "https://git.example.test",
+            "client_id": "gitea-client",
+            "redirect_uri": "http://127.0.0.1:8765/api/auth/gitea/callback",
+            "code_verifier": "secret-verifier",
+        },
+    )
+
+    cancelled = _client().post("/api/auth/gitea/cancel", json={"state": "state-123"})
+    expired = _client().get("/api/auth/gitea/status?state=state-123")
+
+    assert cancelled.status_code == 200
+    assert cancelled.json() == {"status": "cancelled", "provider": "gitea"}
+    assert expired.status_code == 200
+    assert expired.json()["status"] == "expired"
+    assert expired.json()["provider"] == "gitea"
+    assert expired.json()["error"] == "session_expired"
+    assert "secret-verifier" not in expired.text
 
 
 def test_delete_account_removes_identity_and_token(tmp_path, monkeypatch):

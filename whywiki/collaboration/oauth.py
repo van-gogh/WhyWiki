@@ -50,12 +50,30 @@ def new_code_verifier() -> str:
 class AuthSessionStore:
     def __init__(self) -> None:
         self._sessions: dict[str, dict[str, Any]] = {}
+        self._results: dict[str, dict[str, Any]] = {}
 
     def save(self, state: str, payload: dict[str, Any]) -> None:
         self._sessions[state] = dict(payload)
+        self._results.pop(state, None)
 
     def pop(self, state: str) -> dict[str, Any] | None:
         return self._sessions.pop(state, None)
+
+    def peek(self, state: str) -> dict[str, Any] | None:
+        payload = self._sessions.get(state)
+        return dict(payload) if payload is not None else None
+
+    def save_result(self, state: str, payload: dict[str, Any]) -> None:
+        self._sessions.pop(state, None)
+        self._results[state] = dict(payload)
+
+    def result(self, state: str) -> dict[str, Any] | None:
+        payload = self._results.get(state)
+        return dict(payload) if payload is not None else None
+
+    def clear(self, state: str) -> None:
+        self._sessions.pop(state, None)
+        self._results.pop(state, None)
 
 
 class GitHubDeviceFlowClient:

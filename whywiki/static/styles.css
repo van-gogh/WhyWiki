@@ -250,6 +250,13 @@ body.has-current-project .sidebar-back-button {
   overflow-wrap: anywhere;
 }
 
+.account-status-detail {
+  min-width: 0;
+  color: var(--muted);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .linked-repo-status.is-warning {
   color: #b45309;
 }
@@ -334,6 +341,17 @@ body.has-current-project .sidebar-back-button {
   white-space: nowrap;
 }
 
+.auth-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.auth-recovery-actions > * {
+  min-width: 0;
+}
+
 .auth-form {
   display: grid;
   gap: 8px;
@@ -416,6 +434,35 @@ body.has-current-project .sidebar-back-button {
   display: grid;
   gap: 6px;
   min-width: 0;
+}
+
+.auth-provider-choice-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.auth-provider-choice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.auth-provider-choice-copy {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.auth-provider-choice-copy p {
+  margin: 0;
+  line-height: 1.4;
 }
 
 .auth-account-row {
@@ -883,11 +930,11 @@ body.has-current-project .sidebar-back-button {
   min-height: 34px;
 }
 
-.has-project-tag-modal {
+.has-workspace-modal {
   overflow: hidden;
 }
 
-.project-tag-modal-backdrop {
+.workspace-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 100;
@@ -898,7 +945,7 @@ body.has-current-project .sidebar-back-button {
   padding: 24px;
 }
 
-.project-tag-modal-panel {
+.workspace-modal-panel {
   box-sizing: border-box;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
@@ -912,21 +959,21 @@ body.has-current-project .sidebar-back-button {
   padding: 22px;
 }
 
-.project-tag-modal-panel * {
+.workspace-modal-panel * {
   box-sizing: border-box;
 }
 
-.project-tag-modal-panel--large {
+.workspace-modal-panel--large {
   width: min(100%, 980px);
   min-height: min(680px, 82vh);
 }
 
-.project-tag-modal-panel--small {
+.workspace-modal-panel--small {
   min-height: 420px;
 }
 
-.project-tag-modal-header,
-.project-tag-modal-footer {
+.workspace-modal-header,
+.workspace-modal-footer {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -934,20 +981,20 @@ body.has-current-project .sidebar-back-button {
   min-width: 0;
 }
 
-.project-tag-modal-copy {
+.workspace-modal-copy {
   display: grid;
   gap: 6px;
   min-width: 0;
 }
 
-.project-tag-modal-copy h2 {
+.workspace-modal-copy h2 {
   margin: 0;
   font-size: 26px;
   line-height: 1.15;
   overflow-wrap: anywhere;
 }
 
-.project-tag-modal-content {
+.workspace-modal-content {
   display: grid;
   align-content: start;
   gap: 14px;
@@ -956,22 +1003,22 @@ body.has-current-project .sidebar-back-button {
   padding-right: 2px;
 }
 
-.project-tag-modal-content h3 {
+.workspace-modal-content h3 {
   margin: 0;
   font-size: 15px;
 }
 
-.project-tag-modal-footer {
+.workspace-modal-footer {
   align-items: center;
   justify-content: flex-end;
 }
 
-.project-tag-modal-footer .status-line {
+.workspace-modal-footer .status-line {
   flex: 1;
   min-width: 0;
 }
 
-.project-tag-modal-close {
+.workspace-modal-close {
   white-space: nowrap;
 }
 
@@ -1000,6 +1047,16 @@ body.has-current-project .sidebar-back-button {
   font-size: 18px;
   font-weight: 800;
   box-shadow: 0 10px 30px rgba(31, 32, 36, .08);
+}
+
+.ingest-result {
+  display: grid;
+  gap: 12px;
+}
+
+.ingest-result h3 {
+  margin: 0;
+  font-size: 15px;
 }
 
 .project-tag-choice-mount,
@@ -1225,6 +1282,17 @@ pre {
 .inline-form textarea {
   min-height: 84px;
   resize: vertical;
+}
+
+.folder-picker-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.folder-picker-row button[hidden] {
+  display: none;
 }
 
 .status-line {
@@ -2138,18 +2206,23 @@ button:disabled {
   }
 
   .project-tag-filter-actions,
-  .project-tag-modal-footer {
+  .workspace-modal-footer,
+  .auth-recovery-actions {
     display: grid;
     justify-content: stretch;
   }
 
-  .project-tag-modal-backdrop {
+  .auth-provider-choice {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-modal-backdrop {
     padding: 12px;
   }
 
-  .project-tag-modal-panel,
-  .project-tag-modal-panel--large,
-  .project-tag-modal-panel--small {
+  .workspace-modal-panel,
+  .workspace-modal-panel--large,
+  .workspace-modal-panel--small {
     min-height: 0;
     max-height: 88vh;
     border-radius: 22px;
@@ -2164,6 +2237,10 @@ button:disabled {
   .ask-form button,
   .inline-form button {
     width: 100%;
+  }
+
+  .folder-picker-row {
+    grid-template-columns: 1fr;
   }
 }
 

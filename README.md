@@ -71,7 +71,7 @@ For local repository development, use the restart script:
 ./start.sh
 ```
 
-The script creates or reuses `.venv`, installs WhyWiki locally, stops the old service on `127.0.0.1:8765`, initializes the SQLite database, and starts a fresh Web app on <http://127.0.0.1:8765>.
+The script creates or reuses `.venv`, installs WhyWiki locally, stops the old service on `127.0.0.1:8765` when the owning PID can be identified, initializes the SQLite database, and starts a fresh Web app on <http://127.0.0.1:8765>. If the port is occupied by an unidentified process, the script exits with manual cleanup instructions instead of guessing.
 
 ## Current First Board
 

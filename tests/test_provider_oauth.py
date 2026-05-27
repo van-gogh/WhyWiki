@@ -47,6 +47,44 @@ def test_auth_session_store_pops_state_once():
     assert store.pop("missing") is None
 
 
+def test_auth_session_store_records_terminal_result_without_revealing_session():
+    store = AuthSessionStore()
+    store.save("state-1", {"provider": "gitea", "code_verifier": "secret-verifier"})
+
+    assert store.peek("state-1") == {"provider": "gitea", "code_verifier": "secret-verifier"}
+
+    store.save_result(
+        "state-1",
+        {
+            "status": "failed",
+            "provider": "gitea",
+            "error": "oauth_misconfigured",
+            "error_description": "Check the Gitea OAuth app.",
+        },
+    )
+
+    assert store.pop("state-1") is None
+    assert store.peek("state-1") is None
+    assert store.result("state-1") == {
+        "status": "failed",
+        "provider": "gitea",
+        "error": "oauth_misconfigured",
+        "error_description": "Check the Gitea OAuth app.",
+    }
+    assert "secret-verifier" not in json.dumps(store.result("state-1"))
+
+
+def test_auth_session_store_clears_pending_session_and_result():
+    store = AuthSessionStore()
+    store.save("state-1", {"provider": "gitea", "code_verifier": "secret-verifier"})
+    store.save_result("state-1", {"status": "failed", "provider": "gitea"})
+
+    store.clear("state-1")
+
+    assert store.peek("state-1") is None
+    assert store.result("state-1") is None
+
+
 def test_pkce_challenge_is_sha256_urlsafe_without_padding():
     verifier = "a" * 64
 

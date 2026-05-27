@@ -183,8 +183,11 @@ def test_sidebar_exposes_collaboration_status_targets():
     content = (STATIC / "index.html").read_text(encoding="utf-8")
 
     assert 'id="accountStatus"' in content
-    assert 'id="loginGithubButton"' in content
-    assert 'id="loginGiteaButton"' in content
+    assert 'id="accountStatusDetail"' in content
+    assert 'id="manageAccountsButton"' in content
+    assert 'id="loginGithubButton"' not in content
+    assert 'id="loginGiteaButton"' not in content
+    assert 'id="authConnectionPanel"' not in content
     assert 'id="workspaceStatus"' in content
     assert 'id="linkedRepoStatus"' in content
 
@@ -202,16 +205,15 @@ def test_static_shell_exposes_clean_left_home_navigation():
     assert '<button class="tool-button" data-view="projects"' not in html
 
 
-def test_login_provider_buttons_are_real_actions():
+def test_account_sidebar_has_single_management_action():
     html = (STATIC / "index.html").read_text(encoding="utf-8")
 
-    for button_id in ("loginGithubButton", "loginGiteaButton"):
-        pattern = rf'<button(?P<tag>[^>]*)id="{button_id}"(?P<tag_after>[^>]*)>'
-        match = re.search(pattern, html)
-        assert match, f"Missing {button_id}"
-        tag = f'{match.group("tag")} {match.group("tag_after")}'
-        assert "disabled" not in tag
-    assert 'id="authConnectionPanel"' in html
+    pattern = r'<button(?P<tag>[^>]*)id="manageAccountsButton"(?P<tag_after>[^>]*)>'
+    match = re.search(pattern, html)
+    assert match, "Missing account management button"
+    tag = f'{match.group("tag")} {match.group("tag_after")}'
+    assert "disabled" not in tag
+    assert 'data-i18n="auth.manageAccounts"' in tag
 
 
 def test_i18n_includes_git_provider_collaboration_copy():
@@ -237,6 +239,10 @@ def test_app_js_fetches_collaboration_status_endpoints():
 def test_app_js_contains_real_auth_flow_hooks():
     content = (STATIC / "app.js").read_text(encoding="utf-8")
 
+    assert "showAuthAccountModal" in content
+    assert "renderAuthProviderChooser" in content
+    assert "renderAuthSidebarSummary" in content
+    assert "createWorkspaceModal" in content
     assert "startGithubLogin" in content
     assert "renderGithubForm" in content
     assert "renderGithubClientIdGuide" in content
@@ -250,9 +256,27 @@ def test_app_js_contains_real_auth_flow_hooks():
     assert "/api/auth/gitea/start" in content
     assert "createExternalLink" in content
     assert "disconnectAccount" in content
-    assert "renderAuthConnectionPanel" in content
+    assert "renderAuthModalContent" in content
+    assert "renderAuthConnectionPanel" not in content
     assert "authErrorBody" in content
     assert "auth.tokenStorageUnavailableBody" in content
+
+
+def test_app_js_exposes_auth_recovery_paths_for_waiting_and_failed_oauth():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+
+    assert "cancelAuthFlow" in content
+    assert "returnToGithubConfiguration" in content
+    assert "returnToGiteaConfiguration" in content
+    assert "renderAuthRecoveryActions" in content
+    assert "/api/auth/gitea/status?state=" in content
+    assert "/api/auth/gitea/cancel" in content
+    assert "auth.authorizationTimedOut" in content
+    assert "auth.backToConfiguration" in content
+    assert "auth.cancelAuthorization" in content
+    assert "auth.retryAuthorization" in content
+    assert 'result.status === "failed"' in content
+    assert 'result.status === "expired"' in content
 
 
 def test_app_js_renders_copyable_github_user_code():
@@ -313,19 +337,26 @@ def test_app_js_guards_github_polling_session_state():
     assert "sessionId !== authConnectionState.sessionId" in content
     assert "deviceCode !== authConnectionState.github?.deviceCode" in content
     assert "githubPollTimer = window.setTimeout" in content
-    assert "githubLoginButton.disabled = authConnectionState.busy" in content
-    assert "giteaLoginButton.disabled = authConnectionState.busy" in content
+    assert "syncManageAccountsButton" in content
+    assert "manageAccountsButton.disabled = authConnectionState.busy" in content
+    assert "loginGithubButton.disabled = authConnectionState.busy" not in content
+    assert "giteaLoginButton.disabled = authConnectionState.busy" not in content
 
 
 def test_i18n_contains_real_auth_states():
     content = (STATIC / "i18n.js").read_text(encoding="utf-8")
 
     assert "Connect GitHub account" in content
+    assert "Manage accounts" in content
+    assert "Git accounts" in content
     assert "Configure GitHub login" in content
     assert "Get Client ID from GitHub" in content
     assert "Enable Device Flow" in content
     assert "Save and open GitHub authorization" in content
     assert "Connect Gitea account" in content
+    assert "Configure Gitea login" in content
+    assert "Redirect URL" in content
+    assert "Public client with PKCE" in content
     assert "Waiting for authorization" in content
     assert "Token storage unavailable" in content
     assert "Run pip install -e . from the WhyWiki checkout, restart whywiki serve, then retry authorization." in content
@@ -333,16 +364,31 @@ def test_i18n_contains_real_auth_states():
     assert "Copied" in content
     assert "Could not copy. Copy the code manually." in content
     assert "打开 GitHub 授权" in content
+    assert "管理账号" in content
+    assert "Git 账号" in content
     assert "配置 GitHub 登录" in content
     assert "去 GitHub 获取 Client ID" in content
     assert "勾选 Enable Device Flow" in content
     assert "保存并打开 GitHub 授权" in content
+    assert "配置 Gitea 登录" in content
+    assert "Redirect URL" in content
+    assert "Public client with PKCE" in content
     assert "WHYWIKI_GITHUB_CLIENT_ID" not in content
     assert "令牌存储不可用" in content
     assert "在 WhyWiki 仓库运行 pip install -e .，重启 whywiki serve 后重新授权。" in content
     assert '"auth.copyCode": "复制"' in content
     assert "已复制" in content
     assert "复制失败，请手动复制验证码。" in content
+    assert "Back to configuration" in content
+    assert "Cancel this authorization" in content
+    assert "Retry authorization" in content
+    assert "Authorization did not finish" in content
+    assert "WhyWiki did not receive a Gitea callback" in content
+    assert "返回修改配置" in content
+    assert "取消本次授权" in content
+    assert "重新授权" in content
+    assert "授权未完成" in content
+    assert "WhyWiki 没有收到 Gitea 回调" in content
 
 
 def test_app_js_renders_workspace_access_report():
@@ -578,8 +624,8 @@ def test_projects_home_supports_multi_select_project_tags():
     assert ".project-tag-filter-bar" in css
     assert ".project-tag-chip" in css
     assert ".project-card-tags" in css
-    assert ".project-tag-modal-backdrop" in css
-    assert ".project-tag-modal-panel" in css
+    assert ".workspace-modal-backdrop" in css
+    assert ".workspace-modal-panel" in css
     assert ".project-select-card" in css
 
 
@@ -712,6 +758,40 @@ def test_app_js_renders_project_home_as_default_project_entry():
     assert 'showIngestForm("git")' in content
     assert ".project-home-hero" in css
     assert ".project-home-preview-grid" in css
+
+
+def test_project_source_connection_opens_as_workspace_modal():
+    content = (STATIC / "app.js").read_text(encoding="utf-8")
+    css = (STATIC / "styles.css").read_text(encoding="utf-8")
+    i18n = (STATIC / "i18n.js").read_text(encoding="utf-8")
+
+    assert "function createWorkspaceModal" in content
+    assert "function closeWorkspaceModal" in content
+    assert ".workspace-modal-backdrop" in css
+    assert ".workspace-modal-panel" in css
+    assert '"ingest.githubTitle": "Connect GitHub repository"' in i18n
+    assert '"ingest.githubTitle": "连接 GitHub 仓库"' in i18n
+
+    ingest_start = content.index("function showIngestForm")
+    ingest_end = content.index("async function buildCurrentProject")
+    ingest_body = content[ingest_start:ingest_end]
+
+    assert "createWorkspaceModal({" in ingest_body
+    assert "modal.content.append" in ingest_body
+    assert "modal.footer.append" in ingest_body
+    assert "chooseLocalFolder" in ingest_body
+    assert 'api("/api/local-folder-picker"' in content
+    assert 'pathInput.value = result.path || "";' in content
+    assert 'folderPickerButton.hidden = isGit;' in ingest_body
+    assert 'renderOperationFeedback("error", t("ingest.failed")' in ingest_body
+    assert "setActiveView(\"\");" not in ingest_body
+    assert "appNode.replaceChildren(panel);" not in ingest_body
+    assert '"ingest.chooseFolder": "Choose folder"' in i18n
+    assert '"ingest.chooseFolder": "选择文件夹"' in i18n
+    assert '"ingest.folderPickerOpening": "Opening folder picker..."' in i18n
+    assert '"ingest.folderPickerUnavailable": "Could not open the folder picker"' in i18n
+    assert '"ingest.failed": "Could not scan source"' in i18n
+    assert '"ingest.failed": "无法扫描来源"' in i18n
 
 
 def test_app_js_renders_requirements_page_and_cards():

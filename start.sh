@@ -54,7 +54,9 @@ install_whywiki() {
 restart_existing_whywiki() {
   "$VENV_PYTHON" - <<'PY'
 from whywiki.runtime import (
+    PortInUseError,
     clear_runtime_state,
+    choose_port,
     default_runtime_paths,
     find_listening_process,
     read_active_runtime_state,
@@ -78,6 +80,13 @@ if pid is None and owner is not None:
     pid = owner.pid
 
 if pid is None:
+    try:
+        choose_port(host, port)
+    except PortInUseError:
+        print(f"Port {host}:{port} is already occupied, but WhyWiki could not identify the process using it.")
+        print("Stop that process manually, or start WhyWiki on another port with:")
+        print(f"  whywiki serve --host {host} --port <free-port>")
+        raise SystemExit(2)
     print(f"No existing WhyWiki service found on {host}:{port}.")
 else:
     print(f"Stopping existing WhyWiki service on {host}:{port} (pid {pid})...")

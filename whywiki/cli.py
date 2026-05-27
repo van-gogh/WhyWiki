@@ -72,17 +72,25 @@ def print_running_whywiki_options(state: dict[str, object]) -> str:
     return prompt_choice("Choose 1 or 2: ", {"1", "2"}, default="1")
 
 
-def print_foreign_port_options(host: str, port: int, owner: ProcessInfo | None) -> str:
+def print_foreign_port_options(host: str, port: int, owner: ProcessInfo) -> str:
     print(f"Port {host}:{port} is being used by another process.")
-    if owner is not None:
-        print(f"PID: {owner.pid}")
-        print(f"Command: {owner.command}")
-    else:
-        print("PID: unknown")
-        print("Command: unknown")
+    print(f"PID: {owner.pid}")
+    print(f"Command: {owner.command}")
     print("1. Kill the process using this port and start WhyWiki.")
     print("2. Cancel startup.")
     return prompt_choice("Choose 1 or 2: ", {"1", "2"}, default="2")
+
+
+def print_unidentified_port_error(host: str, port: int) -> None:
+    print(f"Port {host}:{port} is being used by another process.")
+    print("PID: unknown")
+    print("Command: unknown")
+    print(
+        f"WhyWiki could not identify the process using {host}:{port}, so it cannot safely stop it.",
+        file=sys.stderr,
+    )
+    print("Stop that process manually, or start WhyWiki on another port with:", file=sys.stderr)
+    print(f"  whywiki serve --host {host} --port <free-port>", file=sys.stderr)
 
 
 def state_pid(state: dict[str, object], host: str, port: int) -> int | None:
@@ -293,12 +301,13 @@ def main(argv: list[str] | None = None) -> int:
                 return run_server(args.host, port, paths, restart=True)
 
             owner = find_listening_process(args.host, args.port)
+            if owner is None:
+                print_unidentified_port_error(args.host, args.port)
+                append_runtime_log(paths, f"Startup canceled because {args.host}:{args.port} is occupied by an unidentified process.")
+                return 2
             choice = print_foreign_port_options(args.host, args.port, owner)
             if choice == "2":
                 append_runtime_log(paths, f"Startup canceled because {args.host}:{args.port} is occupied.")
-                return 2
-            if owner is None:
-                print("Could not identify the process using the port. Canceling startup.", file=sys.stderr)
                 return 2
             stop_process(owner.pid)
             clear_runtime_state(paths)

@@ -29,7 +29,10 @@ def test_start_script_bootstraps_local_runtime():
     assert "-m pip install -e ." in script
     assert "WHYWIKI_DATA_DIR" in script
     assert "restart_existing_whywiki" in script
+    assert "PortInUseError" in script
+    assert "choose_port" in script
     assert "find_listening_process" in script
     assert "stop_process" in script
+    assert "could not identify the process using" in script
     assert "whywiki.cli init-db" in script
     assert "whywiki.cli serve --host 127.0.0.1 --port 8765" in script

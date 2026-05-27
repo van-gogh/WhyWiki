@@ -1,13 +1,53 @@
 from __future__ import annotations
 
+import os
+import re
 import sqlite3
 from pathlib import Path
 
 from ..connectors.git_repo import GitRepoConnector
-from ..connectors.local_files import LocalFilesConnector
+from ..connectors.local_files import LocalFilesConnector, SUPPORTED_EXTENSIONS
 from ..db import connect, init_db
 from ..parsers import parse_file
 from ..utils import new_id, now_iso, sha256_file, sha256_text, to_json
+
+
+WINDOWS_DRIVE_PATH_RE = re.compile(r"^([A-Za-z]):[\\/](.*)$")
+
+
+def supported_extensions_label() -> str:
+    return ", ".join(sorted(SUPPORTED_EXTENSIONS))
+
+
+def wsl_path_hint(path_str: str) -> str | None:
+    match = WINDOWS_DRIVE_PATH_RE.match(path_str.strip())
+    if not match:
+        return None
+    drive, remainder = match.groups()
+    remainder = remainder.replace("\\", "/").lstrip("/")
+    return f"/mnt/{drive.lower()}/{remainder}" if remainder else f"/mnt/{drive.lower()}"
+
+
+def missing_local_path_message(path_str: str, root: Path) -> str:
+    base = f"Local source path does not exist: {root}. "
+    if os.name != "nt":
+        hint = wsl_path_hint(path_str)
+        if hint:
+            return (
+                base
+                + "This WhyWiki server is running on POSIX, so Windows-style paths are not directly readable. "
+                + f"If this folder is on the same machine through WSL, try {hint}. "
+                + "Otherwise enter an absolute folder path that the WhyWiki server can read."
+            )
+    return base + "Enter an absolute folder path that the WhyWiki server can read."
+
+
+def validate_local_input_path(path_str: str, source_type: str) -> None:
+    if source_type == "git":
+        return
+    root = Path(path_str).expanduser()
+    if not root.exists():
+        raise ValueError(missing_local_path_message(path_str, root))
 
 
 def ingest_path(project_id: str, path: str | Path, source_type: str = "local", conn: sqlite3.Connection | None = None) -> dict:
@@ -17,8 +57,14 @@ def ingest_path(project_id: str, path: str | Path, source_type: str = "local", c
     init_db(conn)
 
     path_str = str(path)
+    validate_local_input_path(path_str, source_type)
     connector = GitRepoConnector(path_str) if source_type == "git" else LocalFilesConnector(path_str)
     files = connector.list_files()
+    if not files:
+        raise ValueError(
+            f"No supported files found in source path: {path_str}. "
+            f"Choose a folder containing project files such as {supported_extensions_label()}."
+        )
 
     created_sources = 0
     created_blocks = 0

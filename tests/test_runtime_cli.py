@@ -93,6 +93,31 @@ def test_choose_port_returns_requested_free_port():
     assert port > 0
 
 
+def test_choose_port_enables_address_reuse_for_fast_restart(monkeypatch):
+    calls = []
+
+    class FakeSocket:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def setsockopt(self, level, option, value):
+            calls.append((level, option, value))
+
+        def bind(self, address):
+            calls.append(("bind", address))
+
+        def getsockname(self):
+            return ("127.0.0.1", 8765)
+
+    monkeypatch.setattr("whywiki.runtime.socket.socket", lambda *args, **kwargs: FakeSocket())
+
+    assert choose_port("127.0.0.1", preferred=8765) == 8765
+    assert (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) in calls
+
+
 def test_choose_port_refuses_occupied_preferred_port():
     host = "127.0.0.1"
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -115,6 +140,28 @@ def test_find_listening_process_reads_pid_and_command(monkeypatch):
     monkeypatch.setattr("whywiki.runtime.subprocess.run", fake_run)
 
     assert find_listening_process("127.0.0.1", 8765) == ProcessInfo(4321, "python3")
+
+
+def test_find_listening_process_falls_back_to_proc_socket_inodes(tmp_path, monkeypatch):
+    def fake_run(*args, **kwargs):
+        return types.SimpleNamespace(returncode=1, stdout="")
+
+    monkeypatch.setattr("whywiki.runtime.subprocess.run", fake_run)
+    (tmp_path / "net").mkdir()
+    (tmp_path / "net" / "tcp").write_text(
+        "\n".join([
+            "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode",
+            "   0: 0100007F:223D 00000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 98765 1",
+        ]),
+        encoding="utf-8",
+    )
+    process_dir = tmp_path / "4321"
+    fd_dir = process_dir / "fd"
+    fd_dir.mkdir(parents=True)
+    (process_dir / "comm").write_text("python3\n", encoding="utf-8")
+    (fd_dir / "3").symlink_to("socket:[98765]")
+
+    assert find_listening_process("127.0.0.1", 8765, proc_root=tmp_path) == ProcessInfo(4321, "python3")
 
 
 def test_active_runtime_state_returns_none_and_clears_stale_state(tmp_path):
@@ -312,6 +359,31 @@ def test_serve_prompts_for_foreign_port_owner_and_kills_before_starting(tmp_path
     assert calls == [{"app": "whywiki.app:app", "host": "127.0.0.1", "port": 8765, "reload": False}]
     output = capsys.readouterr().out
     assert "Starting WhyWiki after freeing 127.0.0.1:8765." in output
+
+
+def test_serve_reports_unidentified_foreign_port_without_kill_prompt(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr("whywiki.cli.read_active_runtime_state", lambda paths: None)
+    monkeypatch.setattr("whywiki.cli.probe_whywiki_server", lambda state: False)
+    monkeypatch.setattr("whywiki.cli.find_listening_process", lambda host, port: None)
+    monkeypatch.setattr(
+        "whywiki.cli.choose_port",
+        lambda host, preferred: (_ for _ in ()).throw(PortInUseError(host, preferred)),
+    )
+
+    def unexpected_input(prompt):
+        raise AssertionError("unidentified port owner should not offer a kill prompt")
+
+    monkeypatch.setattr("builtins.input", unexpected_input)
+
+    assert main(["serve", "--host", "127.0.0.1", "--port", "8765"]) == 2
+
+    captured = capsys.readouterr()
+    assert "Port 127.0.0.1:8765 is being used by another process." in captured.out
+    assert "PID: unknown" in captured.out
+    assert "1. Kill the process using this port and start WhyWiki." not in captured.out
+    assert "WhyWiki could not identify the process using 127.0.0.1:8765" in captured.err
+    assert "whywiki serve --host 127.0.0.1 --port <free-port>" in captured.err
 
 
 def test_serve_clears_runtime_state_when_uvicorn_raises(tmp_path, monkeypatch):

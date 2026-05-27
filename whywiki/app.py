@@ -28,6 +28,7 @@ from .services.collaboration import CollaborationService
 from .services.evidence import conflict_evidence, fact_evidence
 from .services.ingest import ingest_path
 from .services.jobs import create_job, get_job, start_background_job
+from .services.local_folder_picker import LocalFolderPickerUnavailable, choose_local_folder
 from .services.requirement_lifecycle import (
     RequirementLifecycleNotFound,
     build_requirement_snapshot,
@@ -102,6 +103,10 @@ class GiteaStartRequest(BaseModel):
     client_id: str
 
 
+class GiteaCancelRequest(BaseModel):
+    state: str
+
+
 def account_store() -> AccountStore:
     return AccountStore(get_data_dir() / "auth" / "accounts.json")
 
@@ -127,6 +132,35 @@ def github_client_id(client_id: str | None = None) -> str:
             ),
         )
     return value
+
+
+GITEA_AUTH_RETRY_GUIDANCE = (
+    "Check the Gitea OAuth app Redirect URL, Public client with PKCE, and Client ID, "
+    "then start login again from WhyWiki."
+)
+
+
+def _gitea_status_payload(state: str) -> dict:
+    result = auth_sessions.result(state)
+    if result is not None:
+        return result
+    if auth_sessions.peek(state) is not None:
+        return {"status": "waiting_for_user", "provider": "gitea"}
+    return {
+        "status": "expired",
+        "provider": "gitea",
+        "error": "session_expired",
+        "error_description": "Gitea login session expired. Start Gitea login again from WhyWiki.",
+    }
+
+
+def _gitea_failed_result(error: str, description: str | None = None) -> dict:
+    return {
+        "status": "failed",
+        "provider": "gitea",
+        "error": error,
+        "error_description": description or GITEA_AUTH_RETRY_GUIDANCE,
+    }
 
 
 def workspace_paths() -> WorkspaceArtifactPaths:
@@ -235,6 +269,17 @@ def api_auth_accounts() -> dict:
     }
 
 
+@app.post("/api/local-folder-picker")
+def api_local_folder_picker() -> dict:
+    try:
+        selected = choose_local_folder()
+    except LocalFolderPickerUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if selected is None:
+        return {"selected": False, "path": ""}
+    return {"selected": True, "path": str(selected)}
+
+
 @app.delete("/api/auth/accounts/{identity_key:path}")
 def api_delete_auth_account(identity_key: str) -> dict:
     decoded_identity_key = unquote(identity_key)
@@ -298,6 +343,23 @@ def api_gitea_start(req: GiteaStartRequest) -> dict:
     }
 
 
+@app.get("/api/auth/gitea/status")
+def api_gitea_status(state: str) -> dict:
+    state = state.strip()
+    if not state:
+        raise HTTPException(status_code=400, detail="state is required for Gitea authorization status.")
+    return _gitea_status_payload(state)
+
+
+@app.post("/api/auth/gitea/cancel")
+def api_gitea_cancel(req: GiteaCancelRequest) -> dict:
+    state = req.state.strip()
+    if not state:
+        raise HTTPException(status_code=400, detail="state is required to cancel Gitea authorization.")
+    auth_sessions.clear(state)
+    return {"status": "cancelled", "provider": "gitea"}
+
+
 @app.get("/api/auth/gitea/callback", response_class=HTMLResponse)
 def api_gitea_callback(
     code: str | None = None,
@@ -305,10 +367,27 @@ def api_gitea_callback(
     error: str | None = None,
 ) -> HTMLResponse:
     if error:
-        return HTMLResponse(
-            "<html><body><h1>Gitea login failed</h1><p>Authorization was not completed.</p></body></html>"
+        if state:
+            auth_sessions.save_result(
+                state,
+                _gitea_failed_result(
+                    error,
+                    f"Gitea authorization was not completed. {GITEA_AUTH_RETRY_GUIDANCE}",
+                ),
+            )
+        return _gitea_auth_failure(
+            "Gitea authorization was not completed.",
+            GITEA_AUTH_RETRY_GUIDANCE,
         )
     if not code or not state:
+        if state:
+            auth_sessions.save_result(
+                state,
+                _gitea_failed_result(
+                    "authorization_incomplete",
+                    f"Gitea authorization was not completed. {GITEA_AUTH_RETRY_GUIDANCE}",
+                ),
+            )
         return _gitea_auth_failure(
             "Gitea authorization was not completed.",
             "Please start Gitea login again from WhyWiki.",
@@ -316,6 +395,16 @@ def api_gitea_callback(
 
     session = auth_sessions.pop(state)
     if session is None:
+        if auth_sessions.result(state) is None:
+            auth_sessions.save_result(
+                state,
+                {
+                    "status": "expired",
+                    "provider": "gitea",
+                    "error": "session_expired",
+                    "error_description": "Gitea login session expired. Start Gitea login again from WhyWiki.",
+                },
+            )
         return _gitea_auth_failure(
             "Gitea login session expired.",
             "Please start Gitea login again from WhyWiki.",
@@ -332,10 +421,21 @@ def api_gitea_callback(
         require_token_store().save(identity, token)
         account_store().save_identity(identity)
     except Exception:
+        auth_sessions.save_result(
+            state,
+            _gitea_failed_result(
+                "oauth_exchange_failed",
+                f"WhyWiki could not complete provider authorization. {GITEA_AUTH_RETRY_GUIDANCE}",
+            ),
+        )
         return _gitea_auth_failure(
             "Gitea login failed.",
-            "WhyWiki could not complete provider authorization. Please check token storage and Gitea OAuth settings, then start login again.",
+            f"WhyWiki could not complete provider authorization. {GITEA_AUTH_RETRY_GUIDANCE}",
         )
+    auth_sessions.save_result(
+        state,
+        {"status": "connected", "provider": "gitea", "identity": identity.to_dict()},
+    )
     return HTMLResponse("<html><body><h1>Gitea connected</h1><p>You can return to WhyWiki.</p></body></html>")
 
 

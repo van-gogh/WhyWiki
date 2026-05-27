@@ -22,6 +22,28 @@ def test_index_versions_static_scripts_for_local_development():
     assert '/static/app.js?v=' in response.text
 
 
+def test_local_folder_picker_api_returns_selected_server_path(monkeypatch, tmp_path):
+    selected = tmp_path / "selected"
+    selected.mkdir()
+    monkeypatch.setattr("whywiki.app.choose_local_folder", lambda: selected)
+    client = TestClient(app)
+
+    response = client.post("/api/local-folder-picker")
+
+    assert response.status_code == 200
+    assert response.json() == {"selected": True, "path": str(selected)}
+
+
+def test_local_folder_picker_api_reports_cancelled_selection(monkeypatch):
+    monkeypatch.setattr("whywiki.app.choose_local_folder", lambda: None)
+    client = TestClient(app)
+
+    response = client.post("/api/local-folder-picker")
+
+    assert response.status_code == 200
+    assert response.json() == {"selected": False, "path": ""}
+
+
 def test_project_api_persists_and_updates_tags(tmp_path, monkeypatch):
     monkeypatch.setenv("WHYWIKI_DATA_DIR", str(tmp_path / "data"))
     client = TestClient(app)
