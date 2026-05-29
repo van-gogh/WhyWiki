@@ -88,7 +88,6 @@ The first board is already a runnable local skeleton:
 - local Web dashboard
 - CLI commands
 - Dockerfile and docker-compose
-- Codex task guide in `docs/CODEX_TASKS.md`
 
 Still intentionally shallow:
 
@@ -161,20 +160,6 @@ Open <http://localhost:8080>.
 
 ```bash
 docker compose up --build
-```
-
-## Codex Workflow
-
-1. Read `AGENTS.md`.
-2. Read `docs/CODEX_TASKS.md`.
-3. Keep `README.md` and `README.zh-CN.md` synchronized when public setup, behavior, product positioning, or feature status changes.
-4. Update `docs/FEATURE_STATUS.md` when feature behavior changes.
-5. Start with one task at a time.
-6. After each meaningful change, run:
-
-```bash
-python -m compileall whywiki
-python -m pytest -q
 ```
 
 ## Product Direction

@@ -88,7 +88,6 @@ http://127.0.0.1:8765
 - 本地 Web dashboard
 - CLI 命令
 - Dockerfile 和 docker-compose
-- `docs/CODEX_TASKS.md` 中的 Codex 任务指南
 
 仍然刻意保持浅层的部分：
 
@@ -144,20 +143,6 @@ whywiki serve
 
 ```bash
 docker compose up --build
-```
-
-## Codex 工作流
-
-1. 阅读 `AGENTS.md`。
-2. 阅读 `docs/CODEX_TASKS.md`。
-3. 当公开安装方式、行为、产品定位或功能状态变化时，同步更新 `README.md` 和 `README.zh-CN.md`。
-4. 当功能行为变化时，更新 `docs/FEATURE_STATUS.md`。
-5. 一次只处理一个任务。
-6. 每次有意义的修改后运行：
-
-```bash
-python -m compileall whywiki
-python -m pytest -q
 ```
 
 ## 产品方向

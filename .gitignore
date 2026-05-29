@@ -22,6 +22,9 @@ dist/
 # WhyWiki local data
 .whywiki/
 .projectwiki/
+*.db
+*.sqlite
+*.sqlite3
 
 # Local implementation worktrees
 .worktrees/
@@ -29,3 +32,20 @@ dist/
 # Local browser verification artifacts
 .playwright-cli/
 .superpowers/
+
+# Local scratch output
+tmp/
+
+# Local editor settings
+.idea/
+.vscode/
+
+# Local agent guidance and implementation process notes
+AGENTS.md
+CLAUDE.md
+docs/AI_ProjectWiki_First_Board_Blueprint.md
+docs/CODEX_TASKS.md
+docs/first_board_design.md
+docs/ui_ux_guidelines.md
+docs/web_design.md
+docs/superpowers/

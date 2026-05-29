@@ -3,3 +3,9 @@ __pycache__/
 .pytest_cache/
 .worktrees/
 .whywiki/
+.projectwiki/
+.playwright-cli/
+tmp/
+AGENTS.md
+CLAUDE.md
+docs/
